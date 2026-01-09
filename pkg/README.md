@@ -1,5 +1,8 @@
 # Pubky App Specs · `pubky-app-specs`
 
+[![npm version](https://img.shields.io/npm/v/pubky-app-specs)](https://www.npmjs.com/package/pubky-app-specs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A WASM library for building and validating structured JSON models compatible with Pubky.App social powered by [`@synonymdev/pubky`](https://www.npmjs.com/package/@synonymdev/pubky). It handles domain objects like **Users**, **Posts**, **Feeds**, **Bookmarks**, **Tags**, and more. Each object is:
 
 - **Sanitized** and **Validated** via Rust logic.
@@ -42,7 +45,7 @@ yarn add pubky-app-specs
 import { PubkySpecsBuilder } from "pubky-app-specs";
 
 // OR CommonJS
-const { PubkySpecsBuilder } = require("pubky-app-specs/index.cjs");
+const { PubkySpecsBuilder } = require("pubky-app-specs");
 
 function loadSpecs(pubkyId) {
   // Create a specs builder instance - WASM is already initialized
@@ -83,7 +86,7 @@ async function createUser(pubkyId) {
   const userJson = user.toJson();
 
   // Store in homeserver via pubky
-  const response = await client.fetch(userResult.meta.url, {
+  const response = await client.fetch(meta.url, {
     method: "PUT",
     body: JSON.stringify(userJson),
     credentials: "include",
@@ -93,8 +96,8 @@ async function createUser(pubkyId) {
     throw new Error(`Failed to store user: ${response.statusText}`);
   }
 
-  console.log("User stored at:", userResult.meta.url);
-  return userResult;
+  console.log("User stored at:", meta.url);
+  return { user, meta };
 }
 ```
 
@@ -105,17 +108,16 @@ import { Client } from "@synonymdev/pubky";
 import { PubkySpecsBuilder, PubkyAppPostKind } from "pubky-app-specs";
 
 async function createPost(pubkyId, content) {
-  // fileData can be a File (browser) or a raw Blob/Buffer (Node).
   const client = new Client();
   const specs = new PubkySpecsBuilder(pubkyId);
 
-  // Create the Post object referencing your (optional) attachment
+  // Create the Post object
   const {post, meta} = specs.createPost(
     content,
     PubkyAppPostKind.Short,
-    null, // parent post
-    null, // embed
-    null // attachments list of urls
+    null, // parent post URI (for replies)
+    null, // embed object (for reposts)
+    null  // attachments (array of file URLs, max 3)
   );
 
   // Store the post
@@ -130,7 +132,39 @@ async function createPost(pubkyId, content) {
 }
 ```
 
-### 3) Following a User
+### 3) Creating a Post with Attachments
+
+```js
+import { Client } from "@synonymdev/pubky";
+import { PubkySpecsBuilder, PubkyAppPostKind } from "pubky-app-specs";
+
+async function createPostWithAttachments(pubkyId, content, fileUrls) {
+  const client = new Client();
+  const specs = new PubkySpecsBuilder(pubkyId);
+
+  // Create post with attachments (max 3 allowed)
+  const {post, meta} = specs.createPost(
+    content,
+    PubkyAppPostKind.Image,
+    null, // parent
+    null, // embed
+    fileUrls // e.g. ["pubky://user/pub/pubky.app/files/abc123"]
+  );
+
+  const postJson = post.toJson();
+  console.log("Attachments:", postJson.attachments);
+
+  await client.fetch(meta.url, {
+    method: "PUT",
+    body: JSON.stringify(postJson),
+  });
+
+  console.log("Post with attachments stored at:", meta.url);
+  return {post, meta};
+}
+```
+
+### 4) Following a User
 
 ```js
 import { Client } from "@synonymdev/pubky";
@@ -164,8 +198,108 @@ This library supports many more domain objects beyond `User` and `Post`. Here ar
 - **Mutes**: `createMute(...)`
 - **Follows**: `createFollow(...)`
 - **LastRead**: `createLastRead(...)`
+- **Blobs**: `createBlob(...)`
+- **Files**: `createFile(...)`
 
 Each has a `meta` field for storing relevant IDs/paths and a typed data object.
+
+### Creating a File with Blob
+
+```js
+import { Client } from "@synonymdev/pubky";
+import { PubkySpecsBuilder, getValidMimeTypes } from "pubky-app-specs";
+
+async function uploadFile(pubkyId, fileData, fileName, contentType, fileSize) {
+  const client = new Client();
+  const specs = new PubkySpecsBuilder(pubkyId);
+
+  // First, create and store the blob (raw binary data)
+  const { blob, meta: blobMeta } = specs.createBlob(fileData);
+  
+  await client.fetch(blobMeta.url, {
+    method: "PUT",
+    body: JSON.stringify(blob.toJson()),
+  });
+
+  // Then create the file metadata pointing to the blob
+  const { file, meta: fileMeta } = specs.createFile(
+    fileName,       // e.g. "vacation-photo.jpg"
+    blobMeta.url,   // Reference to the blob
+    contentType,    // e.g. "image/jpeg"
+    fileSize        // Size in bytes
+  );
+
+  await client.fetch(fileMeta.url, {
+    method: "PUT",
+    body: JSON.stringify(file.toJson()),
+  });
+
+  console.log("File stored at:", fileMeta.url);
+  return { file, meta: fileMeta };
+}
+```
+
+---
+
+## ✅ Validating File MIME Types
+
+Use `getValidMimeTypes()` to get the list of allowed MIME types for file attachments. This helps validate files before upload without duplicating the validation list.
+
+```js
+import { getValidMimeTypes } from "pubky-app-specs";
+
+// Get the list of valid MIME types
+const validMimeTypes = getValidMimeTypes();
+// Returns: ["application/javascript", "application/json", "application/pdf", "image/png", ...]
+
+// Validate a file before upload
+function isValidFileType(mimeType) {
+  return validMimeTypes.includes(mimeType);
+}
+
+// Example usage
+if (isValidFileType(file.type)) {
+  // Proceed with upload
+} else {
+  console.error(`Invalid file type: ${file.type}`);
+}
+```
+
+## 🔗 URI Builder Utilities
+
+These helper functions construct properly formatted Pubky URIs:
+
+```js
+import {
+  userUriBuilder,
+  postUriBuilder,
+  bookmarkUriBuilder,
+  followUriBuilder,
+  tagUriBuilder,
+  muteUriBuilder,
+  lastReadUriBuilder,
+  blobUriBuilder,
+  fileUriBuilder,
+  feedUriBuilder,
+} from "pubky-app-specs";
+
+const userId = "8kkppkmiubfq4pxn6f73nqrhhhgkb5xyfprntc9si3np9ydbotto";
+const targetUserId = "dzswkfy7ek3bqnoc89jxuqqfbzhjrj6mi8qthgbxxcqkdugm3rio";
+
+// Build URIs for different resources
+userUriBuilder(userId);                    // pubky://{userId}/pub/pubky.app/profile.json
+postUriBuilder(userId, "0033SSE3B1FQ0");   // pubky://{userId}/pub/pubky.app/posts/{postId}
+bookmarkUriBuilder(userId, "ABC123");      // pubky://{userId}/pub/pubky.app/bookmarks/{bookmarkId}
+followUriBuilder(userId, targetUserId);    // pubky://{userId}/pub/pubky.app/follows/{targetUserId}
+tagUriBuilder(userId, "XYZ789");           // pubky://{userId}/pub/pubky.app/tags/{tagId}
+muteUriBuilder(userId, targetUserId);      // pubky://{userId}/pub/pubky.app/mutes/{targetUserId}
+lastReadUriBuilder(userId);                // pubky://{userId}/pub/pubky.app/last_read
+blobUriBuilder(userId, "BLOB123");         // pubky://{userId}/pub/pubky.app/blobs/{blobId}
+fileUriBuilder(userId, "FILE456");         // pubky://{userId}/pub/pubky.app/files/{fileId}
+feedUriBuilder(userId, "FEED789");         // pubky://{userId}/pub/pubky.app/feeds/{feedId}
+```
+
+---
 
 ## 📌 Parsing a Pubky URI
 
@@ -193,3 +327,9 @@ A `ParsedUriResult` object with:
 - **user_id:** The parsed user identifier.
 - **resource:** A string indicating the resource type.
 - **resource_id:** An optional resource identifier.
+
+---
+
+## 📄 License
+
+MIT

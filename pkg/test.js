@@ -1,4 +1,4 @@
-import { PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder } from "./index.js";
+import { PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, getValidMimeTypes } from "./index.js";
 import assert from "assert";
 
 const OTTO = "8kkppkmiubfq4pxn6f73nqrhhhgkb5xyfprntc9si3np9ydbotto";
@@ -31,6 +31,32 @@ describe("PubkySpecs Example Objects Tests", () => {
       assert.strictEqual(userJson.name, "Alice Smith", "User name should match");
       assert.strictEqual(userJson.bio, "Software Developer", "User bio should match");
       assert.strictEqual(userJson.status, "active", "User status should match");
+    });
+
+    it("cannot create user with name too short", () => {
+      assert.throws(
+        () => {
+          specsBuilder.createUser("AB", null, null, null, null); // 2 chars, min is 3
+        },
+        (err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          assert.ok(
+            msg.includes("Invalid name length"),
+            `Expected 'Invalid name length' error, got: "${msg}"`
+          );
+          return true;
+        },
+        "Expected validation error for name too short"
+      );
+    });
+
+    it("should accept emoji name at max length (50 chars)", () => {
+      const emojiName = "🔥".repeat(50); // 50 emoji = 50 Unicode chars (but many more bytes)
+      assert.strictEqual([...emojiName].length, 50, "Should be 50 Unicode characters");
+
+      const { user } = specsBuilder.createUser(emojiName, null, null, null, null);
+      const userJson = user.toJson();
+      assert.strictEqual(userJson.name, emojiName, "Emoji name should be preserved");
     });
   });
 
@@ -96,6 +122,36 @@ describe("PubkySpecs Example Objects Tests", () => {
       assert.ok(repostJson.embed, "Repost should have embed");
       assert.strictEqual(repostJson.embed.uri, embedUriRaw, "Embed URI should match");
       assert.strictEqual(repostJson.embed.kind, "video", "Embed kind should match");
+    });
+
+    it("cannot create post with too many attachments", () => {
+      const attachments = [
+        `pubky://${OTTO}/pub/pubky.app/files/0034A0X7NJ52G`,
+        `pubky://${OTTO}/pub/pubky.app/files/0034A0X7NJ53H`,
+        `pubky://${OTTO}/pub/pubky.app/files/0034A0X7NJ54I`,
+        `pubky://${OTTO}/pub/pubky.app/files/0034A0X7NJ55J`, // 4th attachment exceeds limit
+      ];
+
+      assert.throws(
+        () => {
+          specsBuilder.createPost(
+            "Post with too many attachments",
+            PubkyAppPostKind.Image,
+            null,
+            null,
+            attachments
+          );
+        },
+        (err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          assert.ok(
+            msg.includes("Too many attachments"),
+            `Expected 'Too many attachments' error, got: "${msg}"`
+          );
+          return true;
+        },
+        "Expected validation error for too many attachments"
+      );
     });
   });
 
@@ -173,12 +229,12 @@ describe("PubkySpecs Example Objects Tests", () => {
       assert.strictEqual(userUriFromBuilder, userUriRaw, "User URI should match");
 
       const invalidCases = [
-        { label: "otto,rio", invalidChar: "," },
-        { label: "otto:rio", invalidChar: ":" },
-        { label: "otto rio", invalidChar: " " },
+        { label: "otto,rio", invalidChar: ",", isWhitespace: false },
+        { label: "otto:rio", invalidChar: ":", isWhitespace: false },
+        { label: "otto rio", invalidChar: " ", isWhitespace: true },
       ];
 
-      invalidCases.forEach(({ label, invalidChar }) => {
+      invalidCases.forEach(({ label, invalidChar, isWhitespace }) => {
         assert.throws(
           () => {
             specsBuilder.createTag(userUriRaw, label);
@@ -186,16 +242,18 @@ describe("PubkySpecs Example Objects Tests", () => {
           (err) => {
             const msg = err instanceof Error ? err.message : String(err);
 
-            if (invalidChar === " ") {
-              // Current implementation uses a slightly different message for whitespace
-              assert.ok(
-                msg.startsWith("Validation Error: Tag label has"),
+            if (isWhitespace) {
+              // Whitespace has a different error message format
+              assert.strictEqual(
+                msg,
+                `Validation Error: Tag '${label}' contains whitespace characters`,
                 `Unexpected error message for whitespace: "${msg}"`
               );
             } else {
               assert.strictEqual(
                 msg,
-                `Validation Error: Tag label has invalid char: ${invalidChar}`
+                `Validation Error: Tag '${label}' contains invalid character: ${invalidChar}`,
+                `Unexpected error message for invalid char '${invalidChar}': "${msg}"`
               );
             }
 
@@ -321,6 +379,67 @@ describe("PubkySpecs Example Objects Tests", () => {
       assert.strictEqual(feedJson.name, "nature", "Feed name should match");
       assert.ok(feedJson.created_at, "Feed should have created_at timestamp");
       assert.ok(typeof feedJson.created_at === "number", "created_at should be a number");
+    });
+  });
+
+  describe("Valid MIME Types", () => {
+    it("should return an array of valid MIME types", () => {
+      const mimeTypes = getValidMimeTypes();
+      
+      assert.ok(Array.isArray(mimeTypes), "Should return an array");
+      assert.ok(mimeTypes.length > 0, "Should have at least one MIME type");
+    });
+
+    it("should include common image MIME types", () => {
+      const mimeTypes = getValidMimeTypes();
+      
+      assert.ok(mimeTypes.includes("image/png"), "Should include image/png");
+      assert.ok(mimeTypes.includes("image/jpeg"), "Should include image/jpeg");
+      assert.ok(mimeTypes.includes("image/gif"), "Should include image/gif");
+      assert.ok(mimeTypes.includes("image/webp"), "Should include image/webp");
+    });
+
+    it("should include common video MIME types", () => {
+      const mimeTypes = getValidMimeTypes();
+      
+      assert.ok(mimeTypes.includes("video/mp4"), "Should include video/mp4");
+      assert.ok(mimeTypes.includes("video/mpeg"), "Should include video/mpeg");
+    });
+
+    it("should include common document MIME types", () => {
+      const mimeTypes = getValidMimeTypes();
+      
+      assert.ok(mimeTypes.includes("application/pdf"), "Should include application/pdf");
+      assert.ok(mimeTypes.includes("application/json"), "Should include application/json");
+      assert.ok(mimeTypes.includes("text/plain"), "Should include text/plain");
+    });
+
+    it("should be usable for file validation before upload", () => {
+      const mimeTypes = getValidMimeTypes();
+      
+      // Valid file types
+      assert.ok(mimeTypes.includes("image/png"), "image/png should be valid");
+      assert.ok(mimeTypes.includes("application/pdf"), "application/pdf should be valid");
+      
+      // Invalid file types (not in the list)
+      assert.ok(!mimeTypes.includes("application/x-executable"), "application/x-executable should not be valid");
+      assert.ok(!mimeTypes.includes("application/x-msdownload"), "application/x-msdownload should not be valid");
+    });
+
+    it("should create file with valid MIME type from the list", () => {
+      const mimeTypes = getValidMimeTypes();
+      const validMimeType = mimeTypes[0]; // Pick the first valid MIME type
+      
+      const { blob, meta: blobMeta } = specsBuilder.createBlob([1, 2, 3, 4]);
+      const { file } = specsBuilder.createFile(
+        "test-file",
+        blobMeta.url,
+        validMimeType,
+        100
+      );
+      
+      const fileJson = file.toJson();
+      assert.strictEqual(fileJson.content_type, validMimeType, "File should have valid MIME type");
     });
   });
 });

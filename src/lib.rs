@@ -1,16 +1,21 @@
 mod common;
+mod constants;
 mod models;
 pub mod traits;
 mod types;
 mod uri_parser;
 mod utils;
 
+// Re-export constants
+pub use constants::{
+    APP_PATH, INVALID_TAG_CHARS, MAX_SIZE, MAX_TAG_LABEL_LENGTH, MIN_TAG_LABEL_LENGTH, PROTOCOL,
+    PUBLIC_PATH, VERSION,
+};
 // Re-export domain types
-pub use common::{APP_PATH, PROTOCOL, PUBLIC_PATH, VERSION};
 pub use models::blob::PubkyAppBlob;
 pub use models::bookmark::PubkyAppBookmark;
 pub use models::feed::{PubkyAppFeed, PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort};
-pub use models::file::PubkyAppFile;
+pub use models::file::{PubkyAppFile, VALID_MIME_TYPES};
 pub use models::follow::PubkyAppFollow;
 pub use models::last_read::PubkyAppLastRead;
 pub use models::mute::PubkyAppMute;
