@@ -63,18 +63,21 @@ pubky-app-specs = { version = "0.6", features = ["openapi"] }
 
 ## Models
 
-| Rust type           | Purpose                                  |
-| ------------------- | ---------------------------------------- |
-| `PubkyAppUser`      | User profile information                 |
-| `PubkyAppFile`      | Uploaded file metadata                   |
-| `PubkyAppPost`      | Posts, replies, embeds, and collections  |
-| `PubkyAppTag`       | Tags applied to Pubky URIs               |
-| `PubkyAppBookmark`  | Bookmarks for Pubky URIs                 |
-| `PubkyAppFollow`    | Follow relationships                     |
-| `PubkyAppFeed`      | Feed configurations                      |
-| `PubkyAppMute`      | Muted users                              |
-| `PubkyAppBlob`      | Raw binary file data                     |
-| `PubkyAppLastRead`  | Last-read notification timestamp         |
+| Rust type                   | Purpose                                  |
+| --------------------------- | ---------------------------------------- |
+| `PubkyAppUser`              | User profile information                 |
+| `PubkyAppFile`              | Uploaded file metadata                   |
+| `PubkyAppPost`              | Posts, replies, embeds, and collections  |
+| `PubkyAppTag`               | Tags applied to Pubky URIs               |
+| `PubkyAppBookmark`          | Bookmarks for Pubky URIs                 |
+| `PubkyAppFollow`            | Follow relationships                     |
+| `PubkyAppFeed`              | Feed configurations                      |
+| `PubkyAppMute`              | Muted users                              |
+| `PubkyAppBlob`              | Raw binary file data                     |
+| `PubkyAppLastRead`          | Last-read notification timestamp         |
+| `PubkyAppShop`              | Marketplace shop profile (singleton)     |
+| `PubkyAppListing`           | Marketplace listing with variants        |
+| `PubkyAppMarketplaceReview` | Marketplace review of a counterparty     |
 
 ## Specification
 
