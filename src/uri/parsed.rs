@@ -1,7 +1,8 @@
 use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppMute, PubkyAppPost, PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, PROTOCOL,
+    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop,
+    PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, MARKETPLACE_PATH, PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -29,6 +30,9 @@ impl ParsedUri {
             Resource::File(id) => PubkyAppFile::create_path(id),
             Resource::Blob(id) => PubkyAppBlob::create_path(id),
             Resource::Feed(id) => PubkyAppFeed::create_path(id),
+            Resource::Shop => PubkyAppShop::create_path(),
+            Resource::Listing(id) => PubkyAppListing::create_path(id),
+            Resource::MarketplaceReview(id) => PubkyAppMarketplaceReview::create_path(id),
             Resource::Unknown => return Err("Cannot convert Unknown resource to URI".to_string()),
         };
 
@@ -67,6 +71,22 @@ fn resource_from_segments(segments: &[String]) -> Result<Resource, String> {
             s if s == PubkyAppLastRead::PATH_SEGMENT.trim_end_matches('/') => Resource::LastRead,
             _ => Resource::Unknown,
         }),
+        // Marketplace routes live under the nested `marketplace/v1/` prefix.
+        [marketplace, version, segment]
+            if format!("{marketplace}/{version}/{segment}") == PubkyAppShop::PATH_SEGMENT =>
+        {
+            Ok(Resource::Shop)
+        }
+        [marketplace, version, res_type, id, ..]
+            if format!("{marketplace}/{version}/") == MARKETPLACE_PATH && !id.is_empty() =>
+        {
+            let resource_type = format!("{MARKETPLACE_PATH}{res_type}/");
+            Ok(match resource_type.as_str() {
+                PubkyAppListing::PATH_SEGMENT => Resource::Listing(id.clone()),
+                PubkyAppMarketplaceReview::PATH_SEGMENT => Resource::MarketplaceReview(id.clone()),
+                _ => Resource::Unknown,
+            })
+        }
         [res_type, id, ..] if !id.is_empty() => {
             let resource_type = format!("{res_type}/");
             Ok(match resource_type.as_str() {
@@ -99,7 +119,8 @@ impl TryFrom<String> for ParsedUri {
 mod tests {
     use crate::{
         blob_uri_builder, bookmark_uri_builder, feed_uri_builder, file_uri_builder,
-        follow_uri_builder, last_read_uri_builder, mute_uri_builder, post_uri_builder,
+        follow_uri_builder, last_read_uri_builder, listing_uri_builder,
+        marketplace_review_uri_builder, mute_uri_builder, post_uri_builder, shop_uri_builder,
         tag_uri_builder, user_uri_builder,
     };
 
@@ -238,6 +259,66 @@ mod tests {
             parsed.resource,
             Resource::Feed("8Z8CWH8NVYQY39ZEBFGKQWWEKG".to_string())
         );
+    }
+
+    #[test]
+    fn test_valid_shop_uri() {
+        let uri = shop_uri_builder(USER_ID.into());
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse valid shop URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(parsed.resource, Resource::Shop);
+    }
+
+    #[test]
+    fn test_valid_listing_uri() {
+        let uri = listing_uri_builder(USER_ID.into(), "0032SSN7Q4EVG".into());
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse valid listing URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(
+            parsed.resource,
+            Resource::Listing("0032SSN7Q4EVG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_valid_marketplace_review_uri() {
+        let uri =
+            marketplace_review_uri_builder(USER_ID.into(), "8Z8CWH8NVYQY39ZEBFGKQWWEKG".into());
+        let parsed =
+            ParsedUri::try_from(uri).expect("Failed to parse valid marketplace review URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(
+            parsed.resource,
+            Resource::MarketplaceReview("8Z8CWH8NVYQY39ZEBFGKQWWEKG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_marketplace_unknown_subresource() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1/orders/xyz");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
+    }
+
+    #[test]
+    fn test_marketplace_bare_prefix_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
+    }
+
+    #[test]
+    fn test_marketplace_empty_listing_id_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1/listings/");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
+    }
+
+    #[test]
+    fn test_wrong_marketplace_version_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v2/listings/abc");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
     }
 
     #[test]
@@ -417,6 +498,45 @@ mod tests {
             .try_to_uri_str()
             .expect("Failed to convert to URI string");
         assert_eq!(original_uri, reconstructed_uri, "Feed URI roundtrip failed");
+    }
+
+    #[test]
+    fn test_shop_uri_roundtrip() {
+        let original_uri = shop_uri_builder(USER_ID.into());
+        let parsed = ParsedUri::try_from(original_uri.clone()).expect("Failed to parse shop URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(original_uri, reconstructed_uri, "Shop URI roundtrip failed");
+    }
+
+    #[test]
+    fn test_listing_uri_roundtrip() {
+        let listing_id = "0032SSN7Q4EVG";
+        let original_uri = listing_uri_builder(USER_ID.into(), listing_id.into());
+        let parsed =
+            ParsedUri::try_from(original_uri.clone()).expect("Failed to parse listing URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(
+            original_uri, reconstructed_uri,
+            "Listing URI roundtrip failed"
+        );
+    }
+
+    #[test]
+    fn test_marketplace_review_uri_roundtrip() {
+        let review_id = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+        let original_uri = marketplace_review_uri_builder(USER_ID.into(), review_id.into());
+        let parsed = ParsedUri::try_from(original_uri.clone()).expect("Failed to parse review URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(
+            original_uri, reconstructed_uri,
+            "MarketplaceReview URI roundtrip failed"
+        );
     }
 
     #[test]
