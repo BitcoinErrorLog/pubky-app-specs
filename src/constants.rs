@@ -5,3 +5,4 @@ pub static VERSION: &str = env!("CARGO_PKG_VERSION");
 pub static PUBLIC_PATH: &str = "/pub/";
 pub static APP_PATH: &str = "pubky.app/";
 pub static PROTOCOL: &str = "pubky://";
+pub static MARKETPLACE_PATH: &str = "marketplace/v1/";

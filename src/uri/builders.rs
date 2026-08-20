@@ -1,8 +1,8 @@
 use crate::{
     constants::{APP_PATH, PROTOCOL, PUBLIC_PATH},
     traits::{HasIdPath, HasPath},
-    PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppMute,
-    PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppListing,
+    PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop, PubkyAppTag, PubkyAppUser,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -81,4 +81,25 @@ pub fn feed_uri_builder(author_id: String, feed_id: String) -> String {
 pub fn last_read_uri_builder(author_id: String) -> String {
     let last_read_path = [PUBLIC_PATH, APP_PATH, "last_read"].concat();
     [PROTOCOL, &author_id, &last_read_path].concat()
+}
+
+/// Builds a Shop URI of the form "pubky://<owner_id>/pub/pubky.app/marketplace/v1/shop.json"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = shopUriBuilder))]
+pub fn shop_uri_builder(owner_id: String) -> String {
+    let shop_path = PubkyAppShop::create_path();
+    [PROTOCOL, &owner_id, &shop_path].concat()
+}
+
+/// Builds a Listing URI of the form "pubky://<seller_id>/pub/pubky.app/marketplace/v1/listings/<listing_id>"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = listingUriBuilder))]
+pub fn listing_uri_builder(seller_id: String, listing_id: String) -> String {
+    let listing_path = PubkyAppListing::create_path(&listing_id);
+    [PROTOCOL, &seller_id, &listing_path].concat()
+}
+
+/// Builds a MarketplaceReview URI of the form "pubky://<author_id>/pub/pubky.app/marketplace/v1/reviews/<review_id>"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = marketplaceReviewUriBuilder))]
+pub fn marketplace_review_uri_builder(author_id: String, review_id: String) -> String {
+    let review_path = PubkyAppMarketplaceReview::create_path(&review_id);
+    [PROTOCOL, &author_id, &review_path].concat()
 }
