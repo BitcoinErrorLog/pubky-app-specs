@@ -130,6 +130,13 @@ result_struct!(BookmarkResult, bookmark, PubkyAppBookmark);
 result_struct!(MuteResult, mute, PubkyAppMute);
 result_struct!(LastReadResult, last_read, PubkyAppLastRead);
 result_struct!(BlobResult, blob, PubkyAppBlob);
+result_struct!(ShopResult, shop, PubkyAppShop);
+result_struct!(ListingResult, listing, PubkyAppListing);
+result_struct!(
+    MarketplaceReviewResult,
+    marketplace_review,
+    PubkyAppMarketplaceReview
+);
 
 #[wasm_bindgen]
 impl PubkySpecsBuilder {
@@ -379,6 +386,75 @@ impl PubkySpecsBuilder {
         let meta = Meta::from_object(Some(&id), self.pubky_id.clone(), path);
 
         Ok(BlobResult { blob, meta })
+    }
+
+    // -----------------------------------------------------------------------------
+    // 11. PubkyAppShop
+    // -----------------------------------------------------------------------------
+
+    /// Creates a shop record from a plain JSON object matching the
+    /// marketplace shop schema (camelCase fields).
+    #[wasm_bindgen(js_name = createShop)]
+    pub fn create_shop(&self, shop: JsValue) -> Result<ShopResult, String> {
+        let shop: PubkyAppShop = from_value(shop).map_err(|e| e.to_string())?;
+        let shop = shop.sanitize();
+        shop.validate(None)?;
+
+        let path = PubkyAppShop::create_path();
+        let meta = Meta::from_object(None, self.pubky_id.clone(), path);
+
+        Ok(ShopResult { shop, meta })
+    }
+
+    // -----------------------------------------------------------------------------
+    // 12. PubkyAppListing
+    // -----------------------------------------------------------------------------
+
+    /// Creates a listing record from a plain JSON object matching the
+    /// marketplace listing schema (camelCase fields). A fresh timestamp ID
+    /// is generated and written into the record's `listingId`.
+    #[wasm_bindgen(js_name = createListing)]
+    pub fn create_listing(&self, listing: JsValue) -> Result<ListingResult, String> {
+        let listing: PubkyAppListing = from_value(listing).map_err(|e| e.to_string())?;
+        let mut listing = listing.sanitize();
+
+        let listing_id = listing.create_id();
+        listing.listing_id = listing_id.clone();
+        listing.validate(Some(&listing_id))?;
+
+        let path = PubkyAppListing::create_path(&listing_id);
+        let meta = Meta::from_object(Some(&listing_id), self.pubky_id.clone(), path);
+
+        Ok(ListingResult { listing, meta })
+    }
+
+    // -----------------------------------------------------------------------------
+    // 13. PubkyAppMarketplaceReview
+    // -----------------------------------------------------------------------------
+
+    /// Creates a marketplace review record from a plain JSON object matching
+    /// the marketplace review schema (camelCase fields). The hash ID is
+    /// derived from the reviewed listing URI, subject, and role, and written
+    /// into the record's `reviewId`.
+    #[wasm_bindgen(js_name = createMarketplaceReview)]
+    pub fn create_marketplace_review(
+        &self,
+        review: JsValue,
+    ) -> Result<MarketplaceReviewResult, String> {
+        let review: PubkyAppMarketplaceReview = from_value(review).map_err(|e| e.to_string())?;
+        let mut review = review.sanitize();
+
+        let review_id = review.create_id();
+        review.review_id = review_id.clone();
+        review.validate(Some(&review_id))?;
+
+        let path = PubkyAppMarketplaceReview::create_path(&review_id);
+        let meta = Meta::from_object(Some(&review_id), self.pubky_id.clone(), path);
+
+        Ok(MarketplaceReviewResult {
+            marketplace_review: review,
+            meta,
+        })
     }
 }
 

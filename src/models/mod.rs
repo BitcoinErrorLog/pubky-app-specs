@@ -6,14 +6,19 @@ pub mod feed;
 pub mod file;
 pub mod follow;
 pub mod last_read;
+pub mod listing;
+pub mod marketplace;
+pub mod marketplace_review;
 pub mod mute;
 pub mod post;
+pub mod shop;
 pub mod tag;
 pub mod user;
 
 use super::{
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppMute, PubkyAppPost, PubkyAppTag, PubkyAppUser,
+    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop,
+    PubkyAppTag, PubkyAppUser,
 };
 
 /// A unified enum wrapping all PubkyApp objects.
@@ -29,6 +34,9 @@ pub enum PubkyAppObject {
     Blob(blob::PubkyAppBlob),
     Feed(feed::PubkyAppFeed),
     LastRead(last_read::PubkyAppLastRead),
+    Shop(shop::PubkyAppShop),
+    Listing(Box<listing::PubkyAppListing>),
+    MarketplaceReview(marketplace_review::PubkyAppMarketplaceReview),
 }
 
 impl PubkyAppObject {
@@ -84,6 +92,18 @@ impl PubkyAppObject {
             Resource::LastRead => {
                 let last_read = <PubkyAppLastRead as Validatable>::try_from(blob, "")?;
                 Ok(PubkyAppObject::LastRead(last_read))
+            }
+            Resource::Shop => {
+                let shop = <PubkyAppShop as Validatable>::try_from(blob, "")?;
+                Ok(PubkyAppObject::Shop(shop))
+            }
+            Resource::Listing(listing_id) => {
+                let listing = <PubkyAppListing as Validatable>::try_from(blob, listing_id)?;
+                Ok(PubkyAppObject::Listing(Box::new(listing)))
+            }
+            Resource::MarketplaceReview(review_id) => {
+                let review = <PubkyAppMarketplaceReview as Validatable>::try_from(blob, review_id)?;
+                Ok(PubkyAppObject::MarketplaceReview(review))
             }
             Resource::Unknown => Err(format!("Unrecognized resource {:?}", resource)),
         }
@@ -370,6 +390,169 @@ mod tests {
                 );
             }
             other => panic!("Expected a LastRead object, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_import_shop() {
+        let owner = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+        let uri = shop_uri_builder(owner.into());
+        let shop_json = r#"{
+            "schemaVersion": 1,
+            "recordType": "shop",
+            "ownerPubky": "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo",
+            "revision": 1,
+            "createdAt": "2025-01-01T00:00:00Z",
+            "updatedAt": "2025-01-02T00:00:00Z",
+            "name": "Boots & Co",
+            "bio": "Quality hiking boots.",
+            "location": { "countryCode": "US", "region": "Oregon" },
+            "shippingPolicy": "Ships within 3 business days.",
+            "returnPolicy": "Returns accepted within 30 days.",
+            "vacationMode": false
+        }"#;
+        let result = PubkyAppObject::from_uri(uri, shop_json.as_bytes());
+        assert!(
+            result.is_ok(),
+            "Expected a successful import for shop, got error: {:?}",
+            result.err()
+        );
+        match result.unwrap() {
+            PubkyAppObject::Shop(shop) => {
+                assert_eq!(shop.name, "Boots & Co", "Shop name mismatch");
+                assert_eq!(shop.owner_pubky, owner, "Shop owner mismatch");
+            }
+            other => panic!("Expected a Shop object, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_import_listing() {
+        use crate::traits::TimestampId;
+
+        let owner = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+        let listing = crate::PubkyAppListing::new(
+            owner.to_string(),
+            1,
+            "2025-01-01T00:00:00Z".to_string(),
+            "2025-01-02T00:00:00Z".to_string(),
+            String::new(),
+            crate::PubkyAppListingState::Active,
+            "Hiking boots".to_string(),
+            "Sturdy leather hiking boots.".to_string(),
+            "fashion".to_string(),
+            crate::PubkyAppListingCondition::New,
+            None,
+            vec!["boots".to_string()],
+            crate::PubkyAppMarketplaceLocation {
+                country_code: "US".to_string(),
+                region: None,
+            },
+            vec![crate::PubkyAppListingMedia {
+                id: "image_01".to_string(),
+                kind: crate::PubkyAppListingMediaKind::Image,
+                url: format!("pubky://{owner}/pub/pubky.app/marketplace/v1/media/image_01"),
+                content_hash: "a".repeat(64),
+                mime_type: "image/png".to_string(),
+                byte_size: 1024,
+                width: 800,
+                height: 600,
+                duration_ms: None,
+                alt_text: "A pair of boots".to_string(),
+            }],
+            vec![crate::PubkyAppListingVariant {
+                id: "variant_01".to_string(),
+                sku: None,
+                options: Default::default(),
+                price_override: None,
+                quantity: 5,
+                media_ids: vec![],
+                enabled: true,
+            }],
+            crate::PubkyAppListingSale::FixedPrice {
+                unit_price: crate::PubkyAppMoney {
+                    amount_minor: 12_000,
+                    currency: "USD".to_string(),
+                    exponent: 2,
+                },
+                accepts_offers: false,
+            },
+            vec![crate::PubkyAppFulfillmentMethod::Pickup],
+            None,
+            vec![],
+            crate::PubkyAppReturnPolicy {
+                accepts_returns: false,
+                return_window_days: None,
+                buyer_pays_return_shipping: false,
+                details: None,
+            },
+            None,
+            false,
+        );
+        let mut listing = listing;
+        listing.listing_id = listing.create_id();
+
+        let uri = listing_uri_builder(owner.into(), listing.listing_id.clone());
+        let listing_json = serde_json::to_string(&listing).unwrap();
+        let result = PubkyAppObject::from_uri(uri, listing_json.as_bytes());
+        assert!(
+            result.is_ok(),
+            "Expected a successful import for listing, got error: {:?}",
+            result.err()
+        );
+        match result.unwrap() {
+            PubkyAppObject::Listing(imported) => {
+                assert_eq!(imported.title, "Hiking boots", "Listing title mismatch");
+                assert_eq!(
+                    imported.listing_id, listing.listing_id,
+                    "Listing ID mismatch"
+                );
+            }
+            other => panic!("Expected a Listing object, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_import_marketplace_review() {
+        use crate::traits::HashId;
+
+        let reviewer = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+        let seller = "pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy";
+        let mut review = crate::PubkyAppMarketplaceReview::new(
+            reviewer.to_string(),
+            1,
+            "2025-01-01T00:00:00Z".to_string(),
+            "2025-01-01T00:00:00Z".to_string(),
+            String::new(),
+            seller.to_string(),
+            seller.to_string(),
+            "0032SSN7Q4EVG".to_string(),
+            crate::PubkyAppReviewRole::BuyerReviewingSeller,
+            crate::PubkyAppReviewRatings {
+                overall: 5,
+                item_accuracy: None,
+                shipping: None,
+                communication: None,
+            },
+            "Great seller.".to_string(),
+            "a".repeat(64),
+        );
+        review.review_id = review.create_id();
+
+        let uri = marketplace_review_uri_builder(reviewer.into(), review.review_id.clone());
+        let review_json = serde_json::to_string(&review).unwrap();
+        let result = PubkyAppObject::from_uri(uri, review_json.as_bytes());
+        assert!(
+            result.is_ok(),
+            "Expected a successful import for marketplace review, got error: {:?}",
+            result.err()
+        );
+        match result.unwrap() {
+            PubkyAppObject::MarketplaceReview(imported) => {
+                assert_eq!(imported.text, "Great seller.", "Review text mismatch");
+                assert_eq!(imported.review_id, review.review_id, "Review ID mismatch");
+            }
+            other => panic!("Expected a MarketplaceReview object, got {:?}", other),
         }
     }
 

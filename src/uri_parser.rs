@@ -1,8 +1,8 @@
 use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppMute, PubkyAppPost, PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, PROTOCOL,
-    PUBLIC_PATH,
+    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop,
+    PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, MARKETPLACE_PATH, PROTOCOL, PUBLIC_PATH,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -21,6 +21,9 @@ pub enum Resource {
     Blob(String),
     Feed(String),
     LastRead,
+    Shop,
+    Listing(String),
+    MarketplaceReview(String),
     #[default]
     Unknown,
 }
@@ -40,6 +43,11 @@ impl fmt::Display for Resource {
             Resource::File(_) => PubkyAppFile::PATH_SEGMENT.trim_end_matches('/'),
             Resource::Blob(_) => PubkyAppBlob::PATH_SEGMENT.trim_end_matches('/'),
             Resource::Feed(_) => PubkyAppFeed::PATH_SEGMENT.trim_end_matches('/'),
+            Resource::Shop => PubkyAppShop::PATH_SEGMENT,
+            Resource::Listing(_) => PubkyAppListing::PATH_SEGMENT.trim_end_matches('/'),
+            Resource::MarketplaceReview(_) => {
+                PubkyAppMarketplaceReview::PATH_SEGMENT.trim_end_matches('/')
+            }
             Resource::Unknown => "unknown",
         };
         write!(f, "{}", name)
@@ -59,8 +67,10 @@ impl Resource {
             Resource::File(id) => Some(id.clone()),
             Resource::Blob(id) => Some(id.clone()),
             Resource::Feed(id) => Some(id.clone()),
+            Resource::Listing(id) => Some(id.clone()),
+            Resource::MarketplaceReview(id) => Some(id.clone()),
             // The following variants do not carry an id.
-            Resource::User | Resource::LastRead | Resource::Unknown => None,
+            Resource::User | Resource::LastRead | Resource::Shop | Resource::Unknown => None,
         }
     }
 }
@@ -88,6 +98,9 @@ impl ParsedUri {
             Resource::File(id) => PubkyAppFile::create_path(id),
             Resource::Blob(id) => PubkyAppBlob::create_path(id),
             Resource::Feed(id) => PubkyAppFeed::create_path(id),
+            Resource::Shop => PubkyAppShop::create_path(),
+            Resource::Listing(id) => PubkyAppListing::create_path(id),
+            Resource::MarketplaceReview(id) => PubkyAppMarketplaceReview::create_path(id),
             Resource::Unknown => return Err("Cannot convert Unknown resource to URI".to_string()),
         };
 
@@ -148,6 +161,24 @@ impl TryFrom<&str> for ParsedUri {
                 PubkyAppLastRead::PATH_SEGMENT => Resource::LastRead,
                 _ => Resource::Unknown,
             },
+            // Marketplace routes live under the nested `marketplace/v1/` prefix.
+            [marketplace, version, segment]
+                if format!("{marketplace}/{version}/{segment}") == PubkyAppShop::PATH_SEGMENT =>
+            {
+                Resource::Shop
+            }
+            [marketplace, version, res_type, id, ..]
+                if format!("{marketplace}/{version}/") == MARKETPLACE_PATH && !id.is_empty() =>
+            {
+                let resource_type = format!("{MARKETPLACE_PATH}{res_type}/");
+                match resource_type.as_str() {
+                    PubkyAppListing::PATH_SEGMENT => Resource::Listing(id.to_string()),
+                    PubkyAppMarketplaceReview::PATH_SEGMENT => {
+                        Resource::MarketplaceReview(id.to_string())
+                    }
+                    _ => Resource::Unknown,
+                }
+            }
             // Two or more segments and the id is not empty.
             [res_type, id, ..] if !id.is_empty() => {
                 let resource_type = format!("{}/", res_type);
@@ -317,6 +348,66 @@ mod tests {
             parsed.resource,
             Resource::Feed("8Z8CWH8NVYQY39ZEBFGKQWWEKG".to_string())
         );
+    }
+
+    #[test]
+    fn test_valid_shop_uri() {
+        let uri = shop_uri_builder(USER_ID.into());
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse valid shop URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(parsed.resource, Resource::Shop);
+    }
+
+    #[test]
+    fn test_valid_listing_uri() {
+        let uri = listing_uri_builder(USER_ID.into(), "0032SSN7Q4EVG".into());
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse valid listing URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(
+            parsed.resource,
+            Resource::Listing("0032SSN7Q4EVG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_valid_marketplace_review_uri() {
+        let uri =
+            marketplace_review_uri_builder(USER_ID.into(), "8Z8CWH8NVYQY39ZEBFGKQWWEKG".into());
+        let parsed =
+            ParsedUri::try_from(uri).expect("Failed to parse valid marketplace review URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(
+            parsed.resource,
+            Resource::MarketplaceReview("8Z8CWH8NVYQY39ZEBFGKQWWEKG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_marketplace_unknown_subresource() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1/orders/xyz");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
+    }
+
+    #[test]
+    fn test_marketplace_bare_prefix_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
+    }
+
+    #[test]
+    fn test_marketplace_empty_listing_id_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1/listings/");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
+    }
+
+    #[test]
+    fn test_wrong_marketplace_version_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v2/listings/abc");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
     }
 
     #[test]
@@ -496,6 +587,45 @@ mod tests {
             .try_to_uri_str()
             .expect("Failed to convert to URI string");
         assert_eq!(original_uri, reconstructed_uri, "Feed URI roundtrip failed");
+    }
+
+    #[test]
+    fn test_shop_uri_roundtrip() {
+        let original_uri = shop_uri_builder(USER_ID.into());
+        let parsed = ParsedUri::try_from(original_uri.clone()).expect("Failed to parse shop URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(original_uri, reconstructed_uri, "Shop URI roundtrip failed");
+    }
+
+    #[test]
+    fn test_listing_uri_roundtrip() {
+        let listing_id = "0032SSN7Q4EVG";
+        let original_uri = listing_uri_builder(USER_ID.into(), listing_id.into());
+        let parsed =
+            ParsedUri::try_from(original_uri.clone()).expect("Failed to parse listing URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(
+            original_uri, reconstructed_uri,
+            "Listing URI roundtrip failed"
+        );
+    }
+
+    #[test]
+    fn test_marketplace_review_uri_roundtrip() {
+        let review_id = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+        let original_uri = marketplace_review_uri_builder(USER_ID.into(), review_id.into());
+        let parsed = ParsedUri::try_from(original_uri.clone()).expect("Failed to parse review URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(
+            original_uri, reconstructed_uri,
+            "MarketplaceReview URI roundtrip failed"
+        );
     }
 
     #[test]
