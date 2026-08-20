@@ -21,6 +21,9 @@ _Version 0.6.0_
     - [PubkyAppLastRead](#pubkyapplastread)
     - [PubkyAppFeed](#pubkyappfeed)
       - [`feed` object (`PubkyAppFeedConfig`)](#feed-object-pubkyappfeedconfig)
+    - [PubkyAppShop](#pubkyappshop)
+    - [PubkyAppListing](#pubkyapplisting)
+    - [PubkyAppMarketplaceReview](#pubkyappmarketplacereview)
   - [Validation Rules](#validation-rules)
     - [Common Rules](#common-rules)
   - [License](#license)
@@ -320,6 +323,102 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
   "created_at": 1700000000
 }
 ```
+
+---
+
+### PubkyAppShop
+
+**Description:** Represents a seller's marketplace shop profile (singleton per user). All fields are serialized in camelCase and unknown fields are rejected.
+
+**URI:** `/pub/pubky.app/marketplace/v1/shop.json`
+
+| **Field**        | **Type** | **Description**                        | **Validation Rules**                                                              |
+| ---------------- | -------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| `schemaVersion`  | Integer  | Marketplace contract version.          | Required. Must be `1`.                                                            |
+| `recordType`     | String   | Record discriminator.                  | Required. Must be `"shop"`.                                                       |
+| `ownerPubky`     | String   | Pubky of the shop owner.               | Required. 52-character z-base-32 pubky.                                           |
+| `revision`       | Integer  | Record revision.                       | Required. Positive safe integer.                                                  |
+| `createdAt`      | String   | Creation datetime.                     | Required. ISO-8601 with offset (`Z` or `±HH:MM`).                                 |
+| `updatedAt`      | String   | Last-update datetime.                  | Required. ISO-8601 with offset. Must not precede `createdAt`.                     |
+| `name`           | String   | Shop display name.                     | Required. Trimmed. Length: 1–60 characters.                                       |
+| `bio`            | String   | Shop description.                      | Required (may be empty). Trimmed. Maximum length: 1000 characters.                |
+| `location`       | Object   | Public location.                       | Required. `countryCode` ISO 3166-1 alpha-2; optional `region` 1–100 characters.   |
+| `avatarUrl`      | String   | Shop avatar media URI.                 | Optional. Must be a Pubky marketplace v1 URI.                                     |
+| `bannerUrl`      | String   | Shop banner media URI.                 | Optional. Must be a Pubky marketplace v1 URI.                                     |
+| `shippingPolicy` | String   | Default shipping policy.               | Required (may be empty). Trimmed. Maximum length: 4000 characters.                |
+| `returnPolicy`   | String   | Default return policy.                 | Required (may be empty). Trimmed. Maximum length: 4000 characters.                |
+| `vacationMode`   | Boolean  | Whether the shop is paused (vacation). | Required.                                                                          |
+
+---
+
+### PubkyAppListing
+
+**Description:** Represents a marketplace listing published by a seller. All fields are serialized in camelCase and unknown fields are rejected. Money is always integer minor units (`amountMinor`, `currency`, `exponent`).
+
+**URI:** `/pub/pubky.app/marketplace/v1/listings/:listing_id`
+
+| **Field**            | **Type** | **Description**                          | **Validation Rules**                                                                                              |
+| -------------------- | -------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `schemaVersion`      | Integer  | Marketplace contract version.            | Required. Must be `1`.                                                                                             |
+| `recordType`         | String   | Record discriminator.                    | Required. Must be `"listing"`.                                                                                     |
+| `ownerPubky`         | String   | Pubky of the seller.                     | Required. 52-character z-base-32 pubky.                                                                            |
+| `revision`           | Integer  | Record revision.                         | Required. Positive safe integer.                                                                                   |
+| `createdAt`          | String   | Creation datetime.                       | Required. ISO-8601 with offset.                                                                                    |
+| `updatedAt`          | String   | Last-update datetime.                    | Required. ISO-8601 with offset. Must not precede `createdAt`.                                                      |
+| `listingId`          | String   | Listing identifier.                      | Required. Path-safe id that must equal the **Timestamp ID** in the record path.                                    |
+| `state`              | String   | Listing lifecycle state.                 | Required. One of `active`, `paused`, `ended`, `removed`. Active listings need an enabled variant with stock.       |
+| `title`              | String   | Listing title.                           | Required. Trimmed. Length: 3–80 characters.                                                                        |
+| `description`        | String   | Listing description.                     | Required. Trimmed. Length: 1–10000 characters.                                                                     |
+| `taxonomyVersion`    | Integer  | Category taxonomy version.               | Required. Must be `1`.                                                                                             |
+| `categoryId`         | String   | Marketplace category.                    | Required. Kebab-case identifier, 1–120 characters.                                                                 |
+| `condition`          | String   | Item condition.                          | Required. One of `new`, `like_new`, `excellent`, `good`, `fair`, `for_parts`.                                      |
+| `conditionDetails`   | String   | Extra condition notes.                   | Optional. Trimmed. Maximum length: 1000 characters.                                                                |
+| `tags`               | Array    | Search tags.                             | Required. Up to 10 unique, trimmed strings of 1–40 characters.                                                     |
+| `location`           | Object   | Public location.                         | Required. Same rules as the shop location.                                                                         |
+| `media`              | Array    | Media attachments.                       | Required. 1–13 entries; 1–12 images and at most 1 video; unique ids; URIs must be seller-owned marketplace media.  |
+| `variants`           | Array    | Purchasable variants (SKUs).             | Required. 1–100 entries; unique ids and SKUs; quantity 0–1000000; media references must exist.                     |
+| `sale`               | Object   | Sale terms.                              | Required. `format` is `fixed_price` (positive `unitPrice`, `acceptsOffers`) or `auction` (see below).              |
+| `fulfillmentMethods` | Array    | Delivery methods.                        | Required. 1–3 unique values of `physical`, `digital`, `pickup`.                                                    |
+| `package`            | Object   | Package facts (weight/dimensions).       | Required with `physical` fulfillment, forbidden otherwise.                                                         |
+| `shippingOptions`    | Array    | Shipping options.                        | Up to 20 unique-id options (`free`, `flat`, `calculated`). Required non-empty with `physical`, forbidden otherwise. |
+| `returnPolicy`       | Object   | Return policy.                           | Required. Return window (1–365 days) required iff returns are accepted.                                            |
+| `digitalLock`        | Object   | Locks policy for digital delivery.       | Required with `digital` fulfillment, forbidden otherwise.                                                          |
+| `adultOnly`          | Boolean  | Adult-content flag.                      | Required.                                                                                                          |
+
+**Auction rules:** all auction prices must share one asset and exponent; `endsAt` must follow `startsAt`; reserve price must not be below the starting price; buy-now price must exceed the starting price; anti-sniping windows are 0–3600 seconds; auctions require exactly one variant. Variant price overrides and flat shipping prices must use the listing asset.
+
+**Validation Notes:**
+
+- The `listing_id` in the URI must be a valid **Timestamp ID** and must match the record's `listingId` field.
+
+---
+
+### PubkyAppMarketplaceReview
+
+**Description:** Represents a marketplace review of a trade counterparty. All fields are serialized in camelCase and unknown fields are rejected.
+
+**URI:** `/pub/pubky.app/marketplace/v1/reviews/:review_id`
+
+| **Field**                | **Type** | **Description**                        | **Validation Rules**                                                             |
+| ------------------------ | -------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| `schemaVersion`          | Integer  | Marketplace contract version.          | Required. Must be `1`.                                                            |
+| `recordType`             | String   | Record discriminator.                  | Required. Must be `"review"`.                                                     |
+| `ownerPubky`             | String   | Pubky of the reviewer.                 | Required. 52-character z-base-32 pubky.                                           |
+| `revision`               | Integer  | Record revision.                       | Required. Positive safe integer.                                                  |
+| `createdAt`              | String   | Creation datetime.                     | Required. ISO-8601 with offset.                                                   |
+| `updatedAt`              | String   | Last-update datetime.                  | Required. ISO-8601 with offset. Must not precede `createdAt`.                     |
+| `reviewId`               | String   | Review identifier.                     | Required. Must equal the **Hash ID** in the record path.                          |
+| `subjectPubky`           | String   | Pubky of the reviewed user.            | Required. 52-character z-base-32 pubky.                                           |
+| `listingOwnerPubky`      | String   | Pubky of the reviewed listing's owner. | Required. 52-character z-base-32 pubky.                                           |
+| `listingId`              | String   | Reviewed listing identifier.           | Required. Path-safe identifier, 1–128 characters.                                 |
+| `role`                   | String   | Review direction.                      | Required. `buyer_reviewing_seller` or `seller_reviewing_buyer`.                   |
+| `ratings`                | Object   | Star ratings.                          | Required. `overall` 1–5; optional `itemAccuracy`, `shipping`, `communication` 1–5. |
+| `text`                   | String   | Review text.                           | Required. Trimmed. Length: 1–5000 characters.                                     |
+| `eligibilityAttestation` | String   | Proof of review eligibility.           | Required. 32–4096 characters of `[A-Za-z0-9._~-]`.                                |
+
+**Validation Notes:**
+
+- The `review_id` is a **Hash ID** derived from `"{listing_uri}:{subject_pubky}:{role}"`, where `listing_uri` is `pubky://<listingOwnerPubky>/pub/pubky.app/marketplace/v1/listings/<listingId>`.
 
 ---
 
