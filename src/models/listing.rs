@@ -982,9 +982,18 @@ impl Validatable for PubkyAppListing {
     }
 
     fn validate(&self, id: Option<&str>) -> Result<(), String> {
-        // Validate the listing ID (timestamp window) and its match with the record
+        // Validate the listing path ID and its match with the record. The path
+        // ID follows the marketplace entity-id convention (path-safe, bounded)
+        // rather than the 13-char Crockford timestamp rule: the reference
+        // client and the transaction service key listings by 32-char lowercase
+        // hex UUIDs, and every canonical record on homeservers carries one.
+        // Builder-generated timestamp IDs (see `TimestampId::create_id`, still
+        // implemented for this type) satisfy the same rule, so both forms
+        // validate. Requiring timestamp IDs here made every real listing
+        // unindexable (found 2026-08-21 when Nexus rejected all listing PUTs
+        // with "Invalid ID length: must be 13 characters").
         if let Some(id) = id {
-            self.validate_id(id)?;
+            validate_entity_id(id, "listing path id")?;
             if self.listing_id != id {
                 return Err(
                     "Validation Error: listingId does not match the listing path ID".into(),
@@ -1410,6 +1419,26 @@ mod tests {
         let id = listing.listing_id.clone();
         listing.listing_id = "different_id".to_string();
         assert!(listing.validate(Some(&id)).is_err());
+    }
+
+    #[test]
+    fn test_validate_accepts_uuid_hex_path_id() {
+        // The reference client and transaction service key listings by
+        // 32-char lowercase hex UUIDs; the path-id rule must accept them.
+        let mut listing = valid_listing();
+        let id = "a7fc7d5d0b2a4083b27847193f8fe536".to_string();
+        listing.listing_id = id.clone();
+        assert!(listing.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_builder_timestamp_path_id() {
+        // Builder-generated 13-char Crockford ids stay valid under the
+        // entity-id rule.
+        let mut listing = valid_listing();
+        let id = listing.create_id();
+        listing.listing_id = id.clone();
+        assert!(listing.validate(Some(&id)).is_ok());
     }
 
     #[test]
