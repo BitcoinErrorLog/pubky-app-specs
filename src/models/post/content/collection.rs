@@ -70,7 +70,8 @@ pub struct PubkyAppCollectionContent {
     /// `VALIDATION_LIMITS.collection_description_max_length` (unicode scalars).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Ordered list of Post URIs this collection curates. Count bounded by
+    /// Ordered list of URIs this collection curates: canonical Post URIs
+    /// and/or canonical marketplace Listing URIs. Count bounded by
     /// `VALIDATION_LIMITS.collection_items_max_count`; each URI must be in
     /// exact canonical form (see `validate_collection_item_uri`).
     #[serde(default)]
@@ -174,25 +175,36 @@ fn validate_collection_envelope(envelope: &PubkyAppCollectionContent) -> Result<
     Ok(())
 }
 
-/// Strict canonical post-URI check for Collection items. Accepts only the
-/// exact form `pubky://<pubky-id>/pub/pubky.app/posts/<post-id>`.
+/// Strict canonical URI check for Collection items. Accepts exactly two forms:
+///
+/// - Post: `pubky://<pubky-id>/pub/pubky.app/posts/<post-id>`
+/// - Marketplace listing:
+///   `pubky://<pubky-id>/pub/pubky.app/marketplace/v1/listings/<listing-id>`
 ///
 /// Deliberately avoids `Url::parse`: it silently strips userinfo and collapses
 /// `..` path segments, smuggling non-canonical strings past a parse-and-recheck
 /// approach. Splitting the raw string and delegating to `PubkyId::try_from`
-/// (52-char z-base-32) and `validate_crockford_id` (13-char Crockford) enforces
-/// the canonical 94-char form structurally.
+/// (52-char z-base-32) and `validate_crockford_id` (13-char Crockford — post
+/// IDs and listing timestamp IDs share the same encoding) enforces the
+/// canonical form structurally.
 fn validate_collection_item_uri(uri: &str) -> Result<(), String> {
     const PREFIX: &str = "pubky://";
-    const MIDDLE: &str = "/pub/pubky.app/posts/";
+    const POST_MIDDLE: &str = "/pub/pubky.app/posts/";
+    const LISTING_MIDDLE: &str = "/pub/pubky.app/marketplace/v1/listings/";
     let rest = uri
         .strip_prefix(PREFIX)
         .ok_or_else(|| format!("must start with pubky://: {uri}"))?;
-    let (host, post_id) = rest
-        .split_once(MIDDLE)
-        .ok_or_else(|| format!("must be a canonical post URI: {uri}"))?;
+    let (host, item_id, id_kind) = if let Some((host, post_id)) = rest.split_once(POST_MIDDLE) {
+        (host, post_id, "post id")
+    } else if let Some((host, listing_id)) = rest.split_once(LISTING_MIDDLE) {
+        (host, listing_id, "listing id")
+    } else {
+        return Err(format!(
+            "must be a canonical post or marketplace listing URI: {uri}"
+        ));
+    };
     PubkyId::try_from(host).map_err(|e| format!("invalid pubky-id in host: {e}"))?;
-    validate_crockford_id(post_id).map_err(|e| format!("invalid post id: {e}"))?;
+    validate_crockford_id(item_id).map_err(|e| format!("invalid {id_kind}: {e}"))?;
     Ok(())
 }
 
@@ -669,6 +681,85 @@ mod tests {
         let post = make_collection_post("X", None, Some(vec![uri]));
         let id = post.create_id();
         assert!(post.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_collection_post_accepts_listing_item_uri() {
+        // Canonical marketplace listing URIs are valid collection items.
+        let uri =
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/0034A0X7NJ52A");
+        let post = make_collection_post("Wishlist", None, Some(vec![uri]));
+        let id = post.create_id();
+        assert!(post.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_collection_post_accepts_mixed_post_and_listing_items() {
+        let items = vec![
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/posts/0034A0X7NJ52A"),
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/0034A0X7NJ52B"),
+        ];
+        let post = make_collection_post("Mixed", None, Some(items));
+        let id = post.create_id();
+        assert!(post.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_collection_post_rejects_listing_uri_with_invalid_listing_id() {
+        // 13 chars but hyphens aren't in the Crockford alphabet.
+        let uri =
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/abc-def-ghi-j");
+        let post = make_collection_post("X", None, Some(vec![uri]));
+        let id = post.create_id();
+        let err = post.validate(Some(&id)).unwrap_err();
+        assert!(err.contains("invalid listing id"), "got: {err}");
+    }
+
+    #[test]
+    fn test_collection_post_rejects_listing_uri_with_extra_path_segment() {
+        let uri = format!(
+            "pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/0034A0X7NJ52A/extra"
+        );
+        let post = make_collection_post("X", None, Some(vec![uri]));
+        let id = post.create_id();
+        let err = post.validate(Some(&id)).unwrap_err();
+        assert!(err.contains("invalid listing id"), "got: {err}");
+    }
+
+    #[test]
+    fn test_collection_post_rejects_listing_uri_with_invalid_host() {
+        let uri = "pubky://not-a-pubky-id/pub/pubky.app/marketplace/v1/listings/0034A0X7NJ52A"
+            .to_string();
+        let post = make_collection_post("X", None, Some(vec![uri]));
+        let id = post.create_id();
+        let err = post.validate(Some(&id)).unwrap_err();
+        assert!(err.contains("invalid pubky-id"), "got: {err}");
+    }
+
+    #[test]
+    fn test_collection_post_rejects_shop_uri_item() {
+        // Shops are not collection items — only posts and listings.
+        let uri = format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/shop.json");
+        let post = make_collection_post("X", None, Some(vec![uri]));
+        let id = post.create_id();
+        let err = post.validate(Some(&id)).unwrap_err();
+        assert!(
+            err.contains("canonical post or marketplace listing URI"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_collection_post_rejects_review_uri_item() {
+        let uri =
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/reviews/0034A0X7NJ52A");
+        let post = make_collection_post("X", None, Some(vec![uri]));
+        let id = post.create_id();
+        let err = post.validate(Some(&id)).unwrap_err();
+        assert!(
+            err.contains("canonical post or marketplace listing URI"),
+            "got: {err}"
+        );
     }
 
     #[test]

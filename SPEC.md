@@ -176,7 +176,7 @@ Collection posts use a typed JSON envelope as their `content`. The envelope shap
 - `description`: optional, max 500 scalars.
 - `cover_image`: optional hero/cover image URL (max 200 chars). Validated as a general attachment URL — protocol must be `pubky`, `http`, or `https`.
 - `layout`: optional, one of `grid`, `list`, `visual`; the creator's default layout for experiencing the collection. Absent = `grid`. Consumers must treat unrecognized values as `grid`.
-- `items`: ordered list of pubky.app post URIs (max 100). Each URI must be in exact canonical form `pubky://<pubky-id>/pub/pubky.app/posts/<post-id>` (94 chars); any deviation (extra path segments, query, fragment, userinfo, etc.) is rejected.
+- `items`: ordered list of pubky.app URIs (max 100). Each URI must be in exact canonical form — either a post URI `pubky://<pubky-id>/pub/pubky.app/posts/<post-id>` (94 chars) or a marketplace listing URI `pubky://<pubky-id>/pub/pubky.app/marketplace/v1/listings/<listing-id>`; any deviation (extra path segments, query, fragment, userinfo, etc.) is rejected.
 
 For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset. The `content` field is bounded by 40000 scalars instead of the regular short/long caps.
 
