@@ -1,8 +1,8 @@
 use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop,
-    PubkyAppTag, PubkyAppUser, PubkyId,
+    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse,
+    PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -22,6 +22,7 @@ pub enum Resource {
     Shop,
     Listing(String),
     MarketplaceReview(String),
+    ReviewResponse(String),
     #[default]
     Unknown,
 }
@@ -46,6 +47,9 @@ impl fmt::Display for Resource {
             Resource::MarketplaceReview(_) => {
                 PubkyAppMarketplaceReview::PATH_SEGMENT.trim_end_matches('/')
             }
+            Resource::ReviewResponse(_) => {
+                PubkyAppReviewResponse::PATH_SEGMENT.trim_end_matches('/')
+            }
             Resource::Unknown => "unknown",
         };
         write!(f, "{}", name)
@@ -67,6 +71,7 @@ impl Resource {
             Resource::Feed(id) => Some(id.clone()),
             Resource::Listing(id) => Some(id.clone()),
             Resource::MarketplaceReview(id) => Some(id.clone()),
+            Resource::ReviewResponse(id) => Some(id.clone()),
             // The following variants do not carry an id.
             Resource::User | Resource::LastRead | Resource::Shop | Resource::Unknown => None,
         }

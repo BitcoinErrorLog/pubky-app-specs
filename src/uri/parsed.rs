@@ -1,8 +1,8 @@
 use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop,
-    PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, MARKETPLACE_PATH, PROTOCOL,
+    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse,
+    PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, MARKETPLACE_PATH, PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -33,6 +33,7 @@ impl ParsedUri {
             Resource::Shop => PubkyAppShop::create_path(),
             Resource::Listing(id) => PubkyAppListing::create_path(id),
             Resource::MarketplaceReview(id) => PubkyAppMarketplaceReview::create_path(id),
+            Resource::ReviewResponse(id) => PubkyAppReviewResponse::create_path(id),
             Resource::Unknown => return Err("Cannot convert Unknown resource to URI".to_string()),
         };
 
@@ -84,6 +85,7 @@ fn resource_from_segments(segments: &[String]) -> Result<Resource, String> {
             Ok(match resource_type.as_str() {
                 PubkyAppListing::PATH_SEGMENT => Resource::Listing(id.clone()),
                 PubkyAppMarketplaceReview::PATH_SEGMENT => Resource::MarketplaceReview(id.clone()),
+                PubkyAppReviewResponse::PATH_SEGMENT => Resource::ReviewResponse(id.clone()),
                 _ => Resource::Unknown,
             })
         }
@@ -120,8 +122,8 @@ mod tests {
     use crate::{
         blob_uri_builder, bookmark_uri_builder, feed_uri_builder, file_uri_builder,
         follow_uri_builder, last_read_uri_builder, listing_uri_builder,
-        marketplace_review_uri_builder, mute_uri_builder, post_uri_builder, shop_uri_builder,
-        tag_uri_builder, user_uri_builder,
+        marketplace_review_uri_builder, mute_uri_builder, post_uri_builder,
+        review_response_uri_builder, shop_uri_builder, tag_uri_builder, user_uri_builder,
     };
 
     use super::*;
@@ -290,6 +292,32 @@ mod tests {
         assert_eq!(
             parsed.resource,
             Resource::MarketplaceReview("8Z8CWH8NVYQY39ZEBFGKQWWEKG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_valid_review_response_uri() {
+        let uri = review_response_uri_builder(USER_ID.into(), "8Z8CWH8NVYQY39ZEBFGKQWWEKG".into());
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse valid review response URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(
+            parsed.resource,
+            Resource::ReviewResponse("8Z8CWH8NVYQY39ZEBFGKQWWEKG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_review_response_uri_roundtrip() {
+        let review_id = "8Z8CWH8NVYQY39ZEBFGKQWWEKG";
+        let original_uri = review_response_uri_builder(USER_ID.into(), review_id.into());
+        let parsed =
+            ParsedUri::try_from(original_uri.clone()).expect("Failed to parse response URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(
+            original_uri, reconstructed_uri,
+            "ReviewResponse URI roundtrip failed"
         );
     }
 

@@ -2,7 +2,8 @@ use crate::{
     constants::{APP_PATH, PROTOCOL, PUBLIC_PATH},
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppListing,
-    PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop, PubkyAppTag, PubkyAppUser,
+    PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop,
+    PubkyAppTag, PubkyAppUser,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -102,4 +103,11 @@ pub fn listing_uri_builder(seller_id: String, listing_id: String) -> String {
 pub fn marketplace_review_uri_builder(author_id: String, review_id: String) -> String {
     let review_path = PubkyAppMarketplaceReview::create_path(&review_id);
     [PROTOCOL, &author_id, &review_path].concat()
+}
+
+/// Builds a ReviewResponse URI of the form "pubky://<responder_id>/pub/pubky.app/marketplace/v1/review_responses/<review_id>"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = reviewResponseUriBuilder))]
+pub fn review_response_uri_builder(responder_id: String, review_id: String) -> String {
+    let response_path = PubkyAppReviewResponse::create_path(&review_id);
+    [PROTOCOL, &responder_id, &response_path].concat()
 }
