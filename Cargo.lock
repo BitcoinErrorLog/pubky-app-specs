@@ -1802,7 +1802,7 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.6.2-marketplace.3"
+version = "0.6.2-marketplace.4"
 dependencies = [
  "anyhow",
  "base32",

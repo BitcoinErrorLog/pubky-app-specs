@@ -20,9 +20,10 @@ pub use models::file::{PubkyAppFile, VALID_MIME_TYPES};
 pub use models::follow::PubkyAppFollow;
 pub use models::last_read::PubkyAppLastRead;
 pub use models::listing::{
-    PubkyAppDigitalLock, PubkyAppFulfillmentMethod, PubkyAppListing, PubkyAppListingCondition,
-    PubkyAppListingMedia, PubkyAppListingMediaKind, PubkyAppListingPackage, PubkyAppListingSale,
-    PubkyAppListingState, PubkyAppListingVariant, PubkyAppReturnPolicy, PubkyAppShippingOption,
+    PubkyAppDigitalLock, PubkyAppFulfillmentMethod, PubkyAppListing, PubkyAppListingAttributeValue,
+    PubkyAppListingCondition, PubkyAppListingMedia, PubkyAppListingMediaKind,
+    PubkyAppListingPackage, PubkyAppListingSale, PubkyAppListingState, PubkyAppListingVariant,
+    PubkyAppReturnPolicy, PubkyAppShippingOption,
 };
 pub use models::marketplace::{
     PubkyAppMarketplaceLocation, PubkyAppMoney, MARKETPLACE_SCHEMA_VERSION,
