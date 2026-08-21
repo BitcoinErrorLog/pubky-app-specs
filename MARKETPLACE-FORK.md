@@ -17,9 +17,9 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.3` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.4` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
-  Subsequent fork builds increment the final number (`-marketplace.4`, ...).
+  Subsequent fork builds increment the final number (`-marketplace.5`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
 
 ## What was added
@@ -53,18 +53,39 @@ cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.3.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.4.tgz
 ```
+
+Note: run the wasm/npm bundle from a worktree on the local disk — building
+from the external volume trips over AppleDouble (`._*`) files.
 
 ## How to consume (no npm publish required)
 
 The tarball is attached to the GitHub release
-[`v0.6.2-marketplace.3`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.3).
+[`v0.6.2-marketplace.4`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.4).
 Point the app's dependency at it directly:
 
 ```json
-"pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.3/pubky-app-specs-0.6.2-marketplace.3.tgz"
+"pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
+
+## Changes in `.4`
+
+Category taxonomy support for the pubky-app marketplace taxonomy v2:
+
+- **Listing `attributes` container** (`src/models/listing.rs`) — one stable,
+  generic, bounded key/value container for item specifics:
+  `attributes?: Record<string, string | string[]>` with at most 20 keys;
+  keys are lowercase alphanumeric identifiers with single `-`/`_`
+  separators (1–40 chars); values are trimmed strings of 1–80 chars; list
+  values hold 1–10 unique entries. Serialized untagged (plain JSON strings
+  or arrays). Exported as `PubkyAppListingAttributeValue`. Which keys a
+  category expects (and their allowed values) is CLIENT configuration keyed
+  by `taxonomyVersion` — the spec only enforces shape bounds, so the
+  taxonomy can evolve without spec churn per category.
+- **`taxonomyVersion` relaxed** from "must be 1" to a bounded integer
+  (1–1,000,000), for the same reason: the category tree is versioned client
+  config, not protocol schema.
 
 ## Changes in `.3`
 

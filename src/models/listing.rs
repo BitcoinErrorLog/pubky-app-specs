@@ -20,7 +20,8 @@ use utoipa::ToSchema;
 
 // Validation (mirroring the pubky-app commerce listing record schema)
 const LISTING_RECORD_TYPE: &str = "listing";
-const MARKETPLACE_TAXONOMY_VERSION: i64 = 1;
+const MIN_TAXONOMY_VERSION: i64 = 1;
+const MAX_TAXONOMY_VERSION: i64 = 1_000_000;
 const MIN_TITLE_LENGTH: usize = 3;
 const MAX_TITLE_LENGTH: usize = 80;
 const MAX_DESCRIPTION_LENGTH: usize = 10_000;
@@ -50,6 +51,10 @@ const MAX_PACKAGE_DIMENSION_MILLIMETERS: i64 = 100_000;
 const MAX_RETURN_WINDOW_DAYS: i64 = 365;
 const MAX_RETURN_DETAILS_LENGTH: usize = 4_000;
 const MAX_MINIMUM_CONFIRMATIONS: i64 = 6;
+const MAX_ATTRIBUTES: usize = 20;
+const MAX_ATTRIBUTE_KEY_LENGTH: usize = 40;
+const MAX_ATTRIBUTE_VALUE_LENGTH: usize = 80;
+const MAX_ATTRIBUTE_VALUES_PER_KEY: usize = 10;
 
 fn default_true() -> bool {
     true
@@ -640,6 +645,82 @@ impl PubkyAppDigitalLock {
     }
 }
 
+/// One item-specific attribute value: a single string or a small list of
+/// strings (e.g. up to two colors). Serialized untagged, so records carry
+/// plain JSON strings or arrays of strings.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub enum PubkyAppListingAttributeValue {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl PubkyAppListingAttributeValue {
+    fn sanitize(self) -> Self {
+        match self {
+            PubkyAppListingAttributeValue::One(value) => {
+                PubkyAppListingAttributeValue::One(value.trim().to_string())
+            }
+            PubkyAppListingAttributeValue::Many(values) => PubkyAppListingAttributeValue::Many(
+                values.into_iter().map(|v| v.trim().to_string()).collect(),
+            ),
+        }
+    }
+
+    fn validate(&self, key: &str) -> Result<(), String> {
+        let validate_entry = |value: &str| -> Result<(), String> {
+            let length = value.chars().count();
+            if !(1..=MAX_ATTRIBUTE_VALUE_LENGTH).contains(&length) {
+                return Err(format!(
+                    "Validation Error: attribute '{key}' values must be 1-{MAX_ATTRIBUTE_VALUE_LENGTH} characters"
+                ));
+            }
+            Ok(())
+        };
+        match self {
+            PubkyAppListingAttributeValue::One(value) => validate_entry(value),
+            PubkyAppListingAttributeValue::Many(values) => {
+                if !(1..=MAX_ATTRIBUTE_VALUES_PER_KEY).contains(&values.len()) {
+                    return Err(format!(
+                        "Validation Error: attribute '{key}' supports 1-{MAX_ATTRIBUTE_VALUES_PER_KEY} values"
+                    ));
+                }
+                for value in values {
+                    validate_entry(value)?;
+                }
+                ensure_unique(
+                    values.iter().map(String::as_str),
+                    &format!("attribute '{key}' values"),
+                )
+            }
+        }
+    }
+}
+
+/// Attribute keys are lowercase alphanumeric identifiers with single `-` or
+/// `_` separators (e.g. `size`, `color`, `age-era`).
+fn validate_attribute_key(key: &str) -> Result<(), String> {
+    let length = key.chars().count();
+    if !(1..=MAX_ATTRIBUTE_KEY_LENGTH).contains(&length) {
+        return Err(format!(
+            "Validation Error: attribute keys must be 1-{MAX_ATTRIBUTE_KEY_LENGTH} characters"
+        ));
+    }
+    let all_parts_valid = key.split(['-', '_']).all(|part| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    });
+    if !all_parts_valid {
+        return Err(
+            "Validation Error: attribute keys must be lowercase alphanumeric identifiers".into(),
+        );
+    }
+    Ok(())
+}
+
 /// Represents a marketplace listing published by a seller.
 ///
 /// URI: /pub/pubky.app/marketplace/v1/listings/:listing_id
@@ -676,10 +757,19 @@ pub struct PubkyAppListing {
     pub title: String,
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub description: String,
-    /// Marketplace category taxonomy version, always `1`.
+    /// Marketplace category taxonomy version, `1` or greater. The category
+    /// tree and the attribute expectations per category are versioned CLIENT
+    /// configuration keyed by this number — the record stays self-describing
+    /// without the spec churning per category.
     pub taxonomy_version: i64,
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub category_id: String,
+    /// Item specifics: a bounded, generic key/value container. Which keys a
+    /// category expects (and their allowed values) is client configuration
+    /// keyed by `taxonomy_version`; the spec only enforces shape bounds.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<BTreeMap<String, PubkyAppListingAttributeValue>>,
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub condition: PubkyAppListingCondition,
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
@@ -722,7 +812,9 @@ impl PubkyAppListing {
         state: PubkyAppListingState,
         title: String,
         description: String,
+        taxonomy_version: i64,
         category_id: String,
+        attributes: Option<BTreeMap<String, PubkyAppListingAttributeValue>>,
         condition: PubkyAppListingCondition,
         condition_details: Option<String>,
         tags: Vec<String>,
@@ -748,8 +840,9 @@ impl PubkyAppListing {
             state,
             title,
             description,
-            taxonomy_version: MARKETPLACE_TAXONOMY_VERSION,
+            taxonomy_version,
             category_id,
+            attributes,
             condition,
             condition_details,
             tags,
@@ -856,6 +949,12 @@ impl Validatable for PubkyAppListing {
             condition_details: self
                 .condition_details
                 .map(|details| details.trim().to_string()),
+            attributes: self.attributes.map(|attributes| {
+                attributes
+                    .into_iter()
+                    .map(|(key, value)| (key, value.sanitize()))
+                    .collect()
+            }),
             tags: self
                 .tags
                 .into_iter()
@@ -904,9 +1003,9 @@ impl Validatable for PubkyAppListing {
         )?;
         validate_entity_id(&self.listing_id, "listingId")?;
 
-        if self.taxonomy_version != MARKETPLACE_TAXONOMY_VERSION {
+        if !(MIN_TAXONOMY_VERSION..=MAX_TAXONOMY_VERSION).contains(&self.taxonomy_version) {
             return Err(format!(
-                "Validation Error: taxonomyVersion must be {MARKETPLACE_TAXONOMY_VERSION}"
+                "Validation Error: taxonomyVersion must be between {MIN_TAXONOMY_VERSION} and {MAX_TAXONOMY_VERSION}"
             ));
         }
 
@@ -924,6 +1023,18 @@ impl Validatable for PubkyAppListing {
         }
 
         validate_kebab_case_category(&self.category_id)?;
+
+        if let Some(attributes) = &self.attributes {
+            if attributes.len() > MAX_ATTRIBUTES {
+                return Err(format!(
+                    "Validation Error: listing supports at most {MAX_ATTRIBUTES} attributes"
+                ));
+            }
+            for (key, value) in attributes {
+                validate_attribute_key(key)?;
+                value.validate(key)?;
+            }
+        }
 
         if let Some(condition_details) = &self.condition_details {
             if condition_details.chars().count() > MAX_CONDITION_DETAILS_LENGTH {
@@ -1167,7 +1278,9 @@ mod tests {
             PubkyAppListingState::Active,
             "Hiking boots".to_string(),
             "Sturdy leather hiking boots.".to_string(),
+            1,
             "fashion".to_string(),
+            None,
             PubkyAppListingCondition::New,
             None,
             vec!["boots".to_string(), "hiking".to_string()],
@@ -1304,6 +1417,178 @@ mod tests {
         let mut listing = valid_listing();
         listing.title = "ab".to_string();
         assert!(listing.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_validate_taxonomy_version_bounds() {
+        let mut listing = valid_listing();
+        listing.taxonomy_version = 2;
+        assert!(listing.validate(None).is_ok());
+
+        listing.taxonomy_version = 0;
+        assert!(listing.validate(None).is_err());
+        listing.taxonomy_version = MAX_TAXONOMY_VERSION + 1;
+        assert!(listing.validate(None).is_err());
+    }
+
+    fn attributes(
+        entries: &[(&str, PubkyAppListingAttributeValue)],
+    ) -> Option<BTreeMap<String, PubkyAppListingAttributeValue>> {
+        Some(
+            entries
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.clone()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn test_validate_valid_attributes() {
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[
+            (
+                "size",
+                PubkyAppListingAttributeValue::One("US 9".to_string()),
+            ),
+            (
+                "color",
+                PubkyAppListingAttributeValue::Many(vec!["brown".to_string(), "black".to_string()]),
+            ),
+            (
+                "age-era",
+                PubkyAppListingAttributeValue::One("90s".to_string()),
+            ),
+        ]);
+        assert!(listing.validate(None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_attributes_absent_is_valid() {
+        let mut listing = valid_listing();
+        listing.attributes = None;
+        assert!(listing.validate(None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_attribute_key_charset() {
+        for bad_key in ["Size", "size color", "-size", "size-", "size--color", ""] {
+            let mut listing = valid_listing();
+            listing.attributes = attributes(&[(
+                bad_key,
+                PubkyAppListingAttributeValue::One("value".to_string()),
+            )]);
+            assert!(
+                listing.validate(None).is_err(),
+                "expected key {bad_key:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_attribute_bounds() {
+        // Too many keys
+        let mut listing = valid_listing();
+        let entries: Vec<(String, PubkyAppListingAttributeValue)> = (0..=MAX_ATTRIBUTES)
+            .map(|index| {
+                (
+                    format!("key-{index}"),
+                    PubkyAppListingAttributeValue::One("value".to_string()),
+                )
+            })
+            .collect();
+        listing.attributes = Some(entries.into_iter().collect());
+        assert!(listing.validate(None).is_err());
+
+        // Value too long
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[(
+            "size",
+            PubkyAppListingAttributeValue::One("x".repeat(MAX_ATTRIBUTE_VALUE_LENGTH + 1)),
+        )]);
+        assert!(listing.validate(None).is_err());
+
+        // Empty value
+        let mut listing = valid_listing();
+        listing.attributes =
+            attributes(&[("size", PubkyAppListingAttributeValue::One(String::new()))]);
+        assert!(listing.validate(None).is_err());
+
+        // Too many values per key
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[(
+            "style",
+            PubkyAppListingAttributeValue::Many(
+                (0..=MAX_ATTRIBUTE_VALUES_PER_KEY)
+                    .map(|index| format!("value-{index}"))
+                    .collect(),
+            ),
+        )]);
+        assert!(listing.validate(None).is_err());
+
+        // Duplicate values in a list
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[(
+            "color",
+            PubkyAppListingAttributeValue::Many(vec!["brown".to_string(), "brown".to_string()]),
+        )]);
+        assert!(listing.validate(None).is_err());
+
+        // Empty value list
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[("color", PubkyAppListingAttributeValue::Many(vec![]))]);
+        assert!(listing.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_attributes_serialize_untagged_and_roundtrip() {
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[
+            (
+                "size",
+                PubkyAppListingAttributeValue::One("US 9".to_string()),
+            ),
+            (
+                "color",
+                PubkyAppListingAttributeValue::Many(vec!["brown".to_string(), "black".to_string()]),
+            ),
+        ]);
+        let id = listing.listing_id.clone();
+        let value = serde_json::to_value(&listing).unwrap();
+        assert_eq!(value["attributes"]["size"], "US 9");
+        assert_eq!(
+            value["attributes"]["color"],
+            serde_json::json!(["brown", "black"])
+        );
+        let json = serde_json::to_string(&value).unwrap();
+        let parsed = <PubkyAppListing as Validatable>::try_from(json.as_bytes(), &id).unwrap();
+        assert_eq!(parsed, listing);
+    }
+
+    #[test]
+    fn test_attributes_sanitize_trims_values() {
+        let mut listing = valid_listing();
+        listing.attributes = attributes(&[
+            (
+                "size",
+                PubkyAppListingAttributeValue::One("  US 9  ".to_string()),
+            ),
+            (
+                "color",
+                PubkyAppListingAttributeValue::Many(vec!["  brown  ".to_string()]),
+            ),
+        ]);
+        let sanitized = listing.sanitize();
+        let attributes = sanitized.attributes.unwrap();
+        assert_eq!(
+            attributes.get("size"),
+            Some(&PubkyAppListingAttributeValue::One("US 9".to_string()))
+        );
+        assert_eq!(
+            attributes.get("color"),
+            Some(&PubkyAppListingAttributeValue::Many(vec![
+                "brown".to_string()
+            ]))
+        );
     }
 
     #[test]
