@@ -17,9 +17,9 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.2` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.3` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
-  Subsequent fork builds increment the final number (`-marketplace.3`, ...).
+  Subsequent fork builds increment the final number (`-marketplace.4`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
 
 ## What was added
@@ -53,18 +53,38 @@ cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.2.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.3.tgz
 ```
 
 ## How to consume (no npm publish required)
 
 The tarball is attached to the GitHub release
-[`v0.6.2-marketplace.2`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.2).
+[`v0.6.2-marketplace.3`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.3).
 Point the app's dependency at it directly:
 
 ```json
-"pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.2/pubky-app-specs-0.6.2-marketplace.2.tgz"
+"pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.3/pubky-app-specs-0.6.2-marketplace.3.tgz"
 ```
+
+## Changes in `.3`
+
+Trust & reputation records (ADR 0024 in the pubky-app marketplace branch):
+
+- **Purchase attestation format** (`src/models/marketplace_attestation.rs`) —
+  the normative reference for the compact JWS (EdDSA/Ed25519) carried in a
+  review record's `eligibilityAttestation`: closed-world `v: 1` claim set,
+  structural parsing, offline signature verification (the `iss` pubky *is*
+  the verification key), and review-binding checks. Exported as
+  `PubkyAppPurchaseAttestation` / `PubkyAppPurchaseAttestationClaims`; wasm
+  bindings `parsePurchaseAttestation` and `verifyPurchaseAttestation`.
+- **`PubkyAppReviewResponse`** (`src/models/review_response.rs`) — the review
+  subject's single revisable response at
+  `/pub/pubky.app/marketplace/v1/review_responses/{review_id}` (path ID
+  equals the subject review's ID). Structural subject-authorization helper
+  `is_authorized_response_to`. URI parser variant
+  `Resource::ReviewResponse`, builder `review_response_uri_builder`, wasm
+  binding `createReviewResponse`.
+- New dependency: `ed25519-dalek` (verification only, wasm-compatible).
 
 ## Changes in `.2`
 

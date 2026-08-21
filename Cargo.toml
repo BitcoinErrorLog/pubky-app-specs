@@ -1,6 +1,6 @@
 [package]
 name = "pubky-app-specs"
-version = "0.6.2-marketplace.2"
+version = "0.6.2-marketplace.3"
 edition = "2021"
 rust-version = "1.89"
 description = "Pubky.app data models with validation, sanitization, and URI helpers"
@@ -31,6 +31,9 @@ serde_json = "1.0.145"
 url = "2.5.8"
 base32 = "0.5.1"
 blake3 = "1.8.5"
+# Purchase-attestation verification (EdDSA compact JWS, RFC 8037). The
+# verifying key is the decoded `iss` pubky, so no JOSE stack is needed.
+ed25519-dalek = { version = "2", default-features = false, features = ["fast"] }
 mime = "0.3"
 utoipa = { version = "5.5.0", optional = true }
 

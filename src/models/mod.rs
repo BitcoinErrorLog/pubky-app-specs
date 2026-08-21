@@ -8,17 +8,19 @@ pub mod follow;
 pub mod last_read;
 pub mod listing;
 pub mod marketplace;
+pub mod marketplace_attestation;
 pub mod marketplace_review;
 pub mod mute;
 pub mod post;
+pub mod review_response;
 pub mod shop;
 pub mod tag;
 pub mod user;
 
 use super::{
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppShop,
-    PubkyAppTag, PubkyAppUser,
+    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse,
+    PubkyAppShop, PubkyAppTag, PubkyAppUser,
 };
 
 /// A unified enum wrapping all PubkyApp objects.
@@ -37,6 +39,7 @@ pub enum PubkyAppObject {
     Shop(shop::PubkyAppShop),
     Listing(Box<listing::PubkyAppListing>),
     MarketplaceReview(marketplace_review::PubkyAppMarketplaceReview),
+    ReviewResponse(review_response::PubkyAppReviewResponse),
 }
 
 impl PubkyAppObject {
@@ -104,6 +107,10 @@ impl PubkyAppObject {
             Resource::MarketplaceReview(review_id) => {
                 let review = <PubkyAppMarketplaceReview as Validatable>::try_from(blob, review_id)?;
                 Ok(PubkyAppObject::MarketplaceReview(review))
+            }
+            Resource::ReviewResponse(review_id) => {
+                let response = <PubkyAppReviewResponse as Validatable>::try_from(blob, review_id)?;
+                Ok(PubkyAppObject::ReviewResponse(response))
             }
             Resource::Unknown => Err(format!("Unrecognized resource {:?}", resource)),
         }

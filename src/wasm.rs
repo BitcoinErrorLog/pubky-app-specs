@@ -144,6 +144,11 @@ result_struct!(
     marketplace_review,
     PubkyAppMarketplaceReview
 );
+result_struct!(
+    ReviewResponseResult,
+    review_response,
+    PubkyAppReviewResponse
+);
 
 #[wasm_bindgen]
 impl PubkySpecsBuilder {
@@ -531,6 +536,54 @@ impl PubkySpecsBuilder {
             meta,
         })
     }
+
+    // -----------------------------------------------------------------------------
+    // 14. PubkyAppReviewResponse
+    // -----------------------------------------------------------------------------
+
+    /// Creates a review-response record from a plain JSON object matching
+    /// the review-response schema (camelCase fields). The path ID equals the
+    /// subject review's ID carried in the record's `reviewId`.
+    #[wasm_bindgen(js_name = createReviewResponse)]
+    pub fn create_review_response(
+        &self,
+        response: JsValue,
+    ) -> Result<ReviewResponseResult, String> {
+        let response: PubkyAppReviewResponse = from_value(response).map_err(|e| e.to_string())?;
+        let response = response.sanitize();
+
+        let review_id = response.review_id.clone();
+        response.validate(Some(&review_id))?;
+
+        let path = PubkyAppReviewResponse::create_path(&review_id);
+        let meta = Meta::from_object(Some(&review_id), self.pubky_id.clone(), path);
+
+        Ok(ReviewResponseResult {
+            review_response: response,
+            meta,
+        })
+    }
+}
+
+/// Parses and structurally validates a compact JWS purchase attestation,
+/// returning its claims as a plain JSON object. Does NOT verify the
+/// signature — see `verifyPurchaseAttestation`.
+#[wasm_bindgen(js_name = parsePurchaseAttestation)]
+pub fn parse_purchase_attestation(jws: &str) -> Result<JsValue, String> {
+    let attestation = PubkyAppPurchaseAttestation::parse(jws)?;
+    to_value(&attestation.claims).map_err(|e| e.to_string())
+}
+
+/// The full local verification recipe for one review record: parses the
+/// record (camelCase JSON) against the spec, parses its embedded
+/// attestation, verifies the Ed25519 signature against the `iss` pubky, and
+/// checks the claim bindings. Returns the verified claims. Whether `iss` is
+/// a *trusted* attestor remains the caller's policy decision.
+#[wasm_bindgen(js_name = verifyPurchaseAttestation)]
+pub fn verify_purchase_attestation(review: JsValue) -> Result<JsValue, String> {
+    let review: PubkyAppMarketplaceReview = from_value(review).map_err(|e| e.to_string())?;
+    let attestation = PubkyAppPurchaseAttestation::verify_for_review(&review)?;
+    to_value(&attestation.claims).map_err(|e| e.to_string())
 }
 
 /// This object represents the result of parsing a Pubky URI. It contains:

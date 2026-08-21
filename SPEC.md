@@ -24,6 +24,8 @@ _Version 0.6.0_
     - [PubkyAppShop](#pubkyappshop)
     - [PubkyAppListing](#pubkyapplisting)
     - [PubkyAppMarketplaceReview](#pubkyappmarketplacereview)
+    - [Purchase Attestation (embedded JWS)](#purchase-attestation-embedded-jws)
+    - [PubkyAppReviewResponse](#pubkyappreviewresponse)
   - [Validation Rules](#validation-rules)
     - [Common Rules](#common-rules)
   - [License](#license)
@@ -419,6 +421,67 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 **Validation Notes:**
 
 - The `review_id` is a **Hash ID** derived from `"{listing_uri}:{subject_pubky}:{role}"`, where `listing_uri` is `pubky://<listingOwnerPubky>/pub/pubky.app/marketplace/v1/listings/<listingId>`.
+
+---
+
+### Purchase Attestation (embedded JWS)
+
+**Description:** The normative format of the value carried in a review record's `eligibilityAttestation` when the review is attested by a marketplace transaction authority. It is a compact JWS (RFC 7515) signed with EdDSA/Ed25519 (RFC 8037): `base64url(header).base64url(claims).base64url(signature)`, unpadded. The attestation attests the **purchase**, not the review text: record revisions leave it unchanged, and it carries no expiry.
+
+**Header (closed-world, exactly these fields):**
+
+```json
+{ "alg": "EdDSA", "typ": "pubky-purchase-attestation+v1" }
+```
+
+**Claims (version `v: 1`, closed-world — unknown claims are rejected):**
+
+| **Claim**      | **Type** | **Description**                             | **Validation Rules**                                                                  |
+| -------------- | -------- | ------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `v`            | Integer  | Claim-set version.                          | Required. Must be `1`.                                                                 |
+| `iss`          | String   | Attestor pubky.                             | Required. 52-character z-base-32 pubky; decodes to the Ed25519 verification key.       |
+| `sub`          | String   | Reviewer pubky.                             | Required. Must equal the review record's `ownerPubky`.                                 |
+| `cpk`          | String   | Counterparty pubky.                         | Required. Must equal the review record's `subjectPubky`.                               |
+| `role`         | String   | Review direction.                           | Required. `buyer_reviewing_seller` or `seller_reviewing_buyer`; must match the record. |
+| `listing`      | String   | Canonical listing URI.                      | Required. Must match the record's `listingOwnerPubky` + `listingId`.                   |
+| `order_ref`    | String   | Attestor-salted Blake3 of the order UUID.   | Required. 64 lowercase hex characters. Opaque; only the attestor can link it back.     |
+| `completed_on` | String   | Order completion date.                      | Required. `YYYY-MM-DD` (day granularity, deliberately no finer).                       |
+| `amount_band`  | String   | Log-decade amount band.                     | Optional. `{CURRENCY}:{magnitude}`, e.g. `SAT:5`; magnitude 0–18. Emitted only under both-sides consent (seller standing preference AND per-review buyer opt-in). |
+| `iat`          | Integer  | Issuance time (UNIX seconds).               | Required. Positive safe integer.                                                       |
+
+**Verification recipe (offline, no issuer round-trip):**
+
+1. Parse the compact JWS; reject unknown header fields, unknown claims, and unknown versions.
+2. Decode `iss` from z-base-32 — that *is* the Ed25519 verification key. Verify the signature over `base64url(header) || '.' || base64url(claims)`.
+3. Check bindings against the review record: `sub == ownerPubky`, `cpk == subjectPubky`, `listing` matches, `role` matches.
+4. Accept as **verified** only if `iss` is on your own attestor trust list. The signature proves key possession, never legitimacy.
+
+Exact amounts, timestamps finer than a day, addresses, payment identifiers, and bearer material are prohibited in claims.
+
+---
+
+### PubkyAppReviewResponse
+
+**Description:** Represents the review subject's single revisable response to a marketplace review, published on the **responder's** homeserver. All fields are serialized in camelCase and unknown fields are rejected.
+
+**URI:** `/pub/pubky.app/marketplace/v1/review_responses/:review_id`
+
+| **Field**       | **Type** | **Description**                          | **Validation Rules**                                                              |
+| --------------- | -------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| `schemaVersion` | Integer  | Marketplace contract version.            | Required. Must be `1`.                                                             |
+| `recordType`    | String   | Record discriminator.                    | Required. Must be `"review_response"`.                                             |
+| `ownerPubky`    | String   | Pubky of the responder.                  | Required. 52-character z-base-32 pubky.                                            |
+| `revision`      | Integer  | Record revision.                         | Required. Positive safe integer.                                                   |
+| `createdAt`     | String   | Creation datetime.                       | Required. ISO-8601 with offset.                                                    |
+| `updatedAt`     | String   | Last-update datetime.                    | Required. ISO-8601 with offset. Must not precede `createdAt`.                      |
+| `reviewId`      | String   | Subject review's identifier.             | Required. Must equal the ID in the record path.                                    |
+| `reviewUri`     | String   | Canonical URI of the subject review.     | Required. Must reference the same `reviewId`; must not be on the responder's own homeserver. |
+| `text`          | String   | Response text.                           | Required. Trimmed. Length: 1–5000 characters.                                      |
+
+**Validation Notes:**
+
+- The path ID **equals the subject review's ID** — one response per review, revisable via `revision`.
+- **Authorization is structural, not cryptographic:** indexers accept a response only when the response record's `ownerPubky` equals the subject review's `subjectPubky`. An impostor's response fails that check without any signature machinery. No attestation is carried.
 
 ---
 

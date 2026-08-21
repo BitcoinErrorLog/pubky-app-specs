@@ -27,6 +27,10 @@ pub use models::listing::{
 pub use models::marketplace::{
     PubkyAppMarketplaceLocation, PubkyAppMoney, MARKETPLACE_SCHEMA_VERSION,
 };
+pub use models::marketplace_attestation::{
+    base64url_encode, PubkyAppPurchaseAttestation, PubkyAppPurchaseAttestationClaims,
+    PURCHASE_ATTESTATION_TYP, PURCHASE_ATTESTATION_VERSION,
+};
 pub use models::marketplace_review::{
     PubkyAppMarketplaceReview, PubkyAppReviewRatings, PubkyAppReviewRole,
 };
@@ -35,6 +39,7 @@ pub use models::post::{
     PubkyAppCollectionContent, PubkyAppCollectionLayout, PubkyAppPost, PubkyAppPostEmbed,
     PubkyAppPostKind,
 };
+pub use models::review_response::PubkyAppReviewResponse;
 pub use models::shop::PubkyAppShop;
 pub use models::tag::PubkyAppTag;
 pub use models::user::{PubkyAppUser, PubkyAppUserLink};
@@ -44,9 +49,9 @@ pub use types::PubkyId;
 pub use uri::{
     base_uri_builder, blob_uri_builder, bookmark_uri_builder, feed_uri_builder, file_uri_builder,
     follow_uri_builder, is_pubky_scheme, last_read_uri_builder, listing_uri_builder,
-    marketplace_review_uri_builder, mute_uri_builder, post_uri_builder, shop_uri_builder,
-    tag_uri_builder, try_parse_pubky_path, user_uri_builder, ExtendedParsedUri, ParsedUri,
-    PubkyPath, Resource,
+    marketplace_review_uri_builder, mute_uri_builder, post_uri_builder,
+    review_response_uri_builder, shop_uri_builder, tag_uri_builder, try_parse_pubky_path,
+    user_uri_builder, ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
 };
 
 // Our WASM module
