@@ -17,9 +17,9 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.1` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.2` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
-  Subsequent fork builds increment the final number (`-marketplace.2`, ...).
+  Subsequent fork builds increment the final number (`-marketplace.3`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
 
 ## What was added
@@ -53,15 +53,24 @@ cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.1.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.2.tgz
 ```
 
 ## How to consume (no npm publish required)
 
 The tarball is attached to the GitHub release
-[`v0.6.2-marketplace.1`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.1).
+[`v0.6.2-marketplace.2`](https://github.com/BitcoinErrorLog/pubky-app-specs/releases/tag/v0.6.2-marketplace.2).
 Point the app's dependency at it directly:
 
 ```json
-"pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.1/pubky-app-specs-0.6.2-marketplace.1.tgz"
+"pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.2/pubky-app-specs-0.6.2-marketplace.2.tgz"
 ```
+
+## Changes in `.2`
+
+- Collection `items` now also accept canonical marketplace listing URIs
+  (`pubky://<pubky-id>/pub/pubky.app/marketplace/v1/listings/<listing-id>`)
+  alongside canonical post URIs.
+- Tests locking in that `PubkyAppTag` may target marketplace listing and shop
+  URIs (already true — tag targets only require a valid URI — but now covered
+  explicitly).

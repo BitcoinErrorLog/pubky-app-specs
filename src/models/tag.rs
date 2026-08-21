@@ -356,6 +356,37 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_marketplace_listing_uri_target() {
+        // Tags may target marketplace listing URIs: the tag `uri` field only
+        // requires a valid URL, so listing URIs are valid tag targets. This
+        // test locks that behavior in for the marketplace social layer.
+        let listing_uri = crate::listing_uri_builder(
+            "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo".into(),
+            "0034A0X7NJ52A".into(),
+        );
+        let tag = PubkyAppTag::new(listing_uri.clone(), "handmade".to_string());
+        assert_eq!(tag.uri, listing_uri);
+        let id = tag.create_id();
+        assert!(
+            tag.validate(Some(&id)).is_ok(),
+            "tags targeting marketplace listing URIs must validate"
+        );
+    }
+
+    #[test]
+    fn test_validate_marketplace_shop_uri_target() {
+        let shop_uri =
+            crate::shop_uri_builder("operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo".into());
+        let tag = PubkyAppTag::new(shop_uri.clone(), "trusted".to_string());
+        assert_eq!(tag.uri, shop_uri);
+        let id = tag.create_id();
+        assert!(
+            tag.validate(Some(&id)).is_ok(),
+            "tags targeting marketplace shop URIs must validate"
+        );
+    }
+
+    #[test]
     fn test_try_from_valid() {
         let user_uri = user_uri_builder("user_pubky_id".into());
         let tag_label = "CoolTag".to_string();
