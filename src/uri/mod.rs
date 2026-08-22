@@ -17,7 +17,7 @@ pub use builders::{
     base_uri_builder, blob_uri_builder, bookmark_uri_builder, feed_uri_builder, file_uri_builder,
     follow_uri_builder, last_read_uri_builder, listing_uri_builder, marketplace_review_uri_builder,
     mute_uri_builder, post_uri_builder, review_response_uri_builder, shop_uri_builder,
-    tag_uri_builder, user_uri_builder,
+    tag_uri_builder, user_uri_builder, watchlist_uri_builder,
 };
 
 // Strict

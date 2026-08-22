@@ -16,6 +16,7 @@ pub mod review_response;
 pub mod shop;
 pub mod tag;
 pub mod user;
+pub mod watchlist;
 
 use super::{
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,

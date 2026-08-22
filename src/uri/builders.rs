@@ -3,7 +3,7 @@ use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppListing,
     PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop,
-    PubkyAppTag, PubkyAppUser,
+    PubkyAppTag, PubkyAppUser, PubkyAppWatchlist,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -103,6 +103,16 @@ pub fn listing_uri_builder(seller_id: String, listing_id: String) -> String {
 pub fn marketplace_review_uri_builder(author_id: String, review_id: String) -> String {
     let review_path = PubkyAppMarketplaceReview::create_path(&review_id);
     [PROTOCOL, &author_id, &review_path].concat()
+}
+
+/// Builds a private Watchlist URI of the form "pubky://<owner_id>/priv/pubky.app/marketplace/v1/watchlist.json".
+///
+/// Note the `/priv/` prefix: only the owner's own authenticated sessions can
+/// read or write this URI; it is never watcher-indexed.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = watchlistUriBuilder))]
+pub fn watchlist_uri_builder(owner_id: String) -> String {
+    let watchlist_path = PubkyAppWatchlist::create_path();
+    [PROTOCOL, &owner_id, &watchlist_path].concat()
 }
 
 /// Builds a ReviewResponse URI of the form "pubky://<responder_id>/pub/pubky.app/marketplace/v1/review_responses/<review_id>"

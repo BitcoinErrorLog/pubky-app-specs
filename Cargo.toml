@@ -1,6 +1,6 @@
 [package]
 name = "pubky-app-specs"
-version = "0.6.2-marketplace.5"
+version = "0.6.2-marketplace.6"
 edition = "2021"
 rust-version = "1.89"
 description = "Pubky.app data models with validation, sanitization, and URI helpers"
