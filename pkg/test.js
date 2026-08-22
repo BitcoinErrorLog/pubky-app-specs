@@ -1,4 +1,4 @@
-import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, getValidMimeTypes } from "./index.js";
+import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, getValidMimeTypes } from "./index.js";
 import { createRequire } from "node:module";
 import assert from "assert";
 
@@ -469,6 +469,57 @@ describe("PubkySpecs Example Objects Tests", () => {
       const lastReadJson = last_read.toJson();
       assert.ok(lastReadJson.timestamp, "LastRead should have timestamp");
       assert.ok(typeof lastReadJson.timestamp === "number", "timestamp should be a number");
+    });
+  });
+
+  describe("Watchlist Pubky-app-specs (private)", () => {
+    const watchlistBody = () => ({
+      schemaVersion: 1,
+      recordType: "watchlist",
+      ownerPubky: OTTO,
+      revision: 1,
+      createdAt: "2025-01-01T00:00:00Z",
+      updatedAt: "2025-01-02T00:00:00Z",
+      items: [
+        { listingOwnerPubky: RIO, listingId: "0032SSN7Q4EVG", watchedAtMs: 1735689600000 },
+      ],
+      tombstones: [
+        { listingOwnerPubky: RIO, listingId: "0032SSN7Q4EVH", removedAtMs: 1735776000000 },
+      ],
+    });
+
+    it("should create a private watchlist under /priv", () => {
+      const { watchlist, meta } = specsBuilder.createWatchlist(watchlistBody());
+
+      assert.strictEqual(
+        meta.path,
+        "/priv/pubky.app/marketplace/v1/watchlist.json",
+        "Watchlist path must live under /priv"
+      );
+      assert.strictEqual(
+        meta.url,
+        `pubky://${OTTO}/priv/pubky.app/marketplace/v1/watchlist.json`,
+        "Watchlist URL must be the owner's private URI"
+      );
+      assert.strictEqual(meta.url, watchlistUriBuilder(OTTO), "URI builder must agree with meta");
+
+      const json = watchlist.toJson();
+      assert.strictEqual(json.recordType, "watchlist");
+      assert.strictEqual(json.items[0].watchedAtMs, 1735689600000);
+      assert.strictEqual(json.tombstones[0].removedAtMs, 1735776000000);
+
+      const roundtrip = PubkyAppWatchlist.fromJson(json);
+      assert.strictEqual(roundtrip.toJson().items[0].listingId, "0032SSN7Q4EVG");
+    });
+
+    it("should reject a listing key present in both items and tombstones", () => {
+      const body = watchlistBody();
+      body.tombstones.push({
+        listingOwnerPubky: RIO,
+        listingId: "0032SSN7Q4EVG",
+        removedAtMs: 1,
+      });
+      assert.throws(() => specsBuilder.createWatchlist(body));
     });
   });
 
