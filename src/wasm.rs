@@ -149,6 +149,7 @@ result_struct!(
     review_response,
     PubkyAppReviewResponse
 );
+result_struct!(WatchlistResult, watchlist, PubkyAppWatchlist);
 
 #[wasm_bindgen]
 impl PubkySpecsBuilder {
@@ -562,6 +563,26 @@ impl PubkySpecsBuilder {
             review_response: response,
             meta,
         })
+    }
+
+    // -----------------------------------------------------------------------------
+    // 15. PubkyAppWatchlist (PRIVATE record)
+    // -----------------------------------------------------------------------------
+
+    /// Creates a private watchlist document from a plain JSON object matching
+    /// the watchlist schema (camelCase fields). The resulting path/url live
+    /// under `/priv/pubky.app/` — only the owner's authenticated sessions can
+    /// read or write it.
+    #[wasm_bindgen(js_name = createWatchlist)]
+    pub fn create_watchlist(&self, watchlist: JsValue) -> Result<WatchlistResult, String> {
+        let watchlist: PubkyAppWatchlist = from_value(watchlist).map_err(|e| e.to_string())?;
+        let watchlist = watchlist.sanitize();
+        watchlist.validate(None)?;
+
+        let path = PubkyAppWatchlist::create_path();
+        let meta = Meta::from_object(None, self.pubky_id.clone(), path);
+
+        Ok(WatchlistResult { watchlist, meta })
     }
 }
 

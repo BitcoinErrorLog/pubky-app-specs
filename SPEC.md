@@ -26,6 +26,7 @@ _Version 0.6.0_
     - [PubkyAppMarketplaceReview](#pubkyappmarketplacereview)
     - [Purchase Attestation (embedded JWS)](#purchase-attestation-embedded-jws)
     - [PubkyAppReviewResponse](#pubkyappreviewresponse)
+    - [PubkyAppWatchlist (private)](#pubkyappwatchlist-private)
   - [Validation Rules](#validation-rules)
     - [Common Rules](#common-rules)
   - [License](#license)
@@ -483,6 +484,43 @@ Exact amounts, timestamps finer than a day, addresses, payment identifiers, and 
 
 - The path ID **equals the subject review's ID** — one response per review, revisable via `revision`.
 - **Authorization is structural, not cryptographic:** indexers accept a response only when the response record's `ownerPubky` equals the subject review's `subjectPubky`. An impostor's response fails that check without any signature machinery. No attestation is carried.
+
+---
+
+### PubkyAppWatchlist (private)
+
+**Description:** The user's private marketplace watchlist — the first record under `/priv/`, the homeserver's authenticated private storage. A watchlist reveals purchase intent, so unlike every `/pub/pubky.app/` record it must not be world-readable, directory-listable, or indexable; the homeserver refuses reads, listings, and writes on `/priv/` paths from anyone but the owner's own sessions. This record is deliberately **not** wired into `PubkyAppObject` or the URI parser's resource resolution: watchers and indexers never see it. Sessions need the `/priv/pubky.app/:rw` capability to touch it.
+
+**URI:** `/priv/pubky.app/marketplace/v1/watchlist.json`
+
+It is a **single revisioned document** (singleton per user, like `shop.json`) rather than one record per watched listing because: (a) watch/unwatch toggles are high-churn, and a single document makes each sync one `PUT` instead of a create/delete stream; (b) merge needs items and tombstones resolved together atomically — two files could tear; and (c) private storage has no index that would benefit from per-item paths.
+
+| **Field**       | **Type** | **Description**                            | **Validation Rules**                                                              |
+| --------------- | -------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `schemaVersion` | Integer  | Marketplace contract version.              | Required. Must be `1`.                                                             |
+| `recordType`    | String   | Record discriminator.                      | Required. Must be `"watchlist"`.                                                   |
+| `ownerPubky`    | String   | Pubky of the watchlist owner.              | Required. 52-character z-base-32 pubky.                                            |
+| `revision`      | Integer  | Document revision.                         | Required. Positive safe integer.                                                   |
+| `createdAt`     | String   | Creation datetime.                         | Required. ISO-8601 with offset.                                                    |
+| `updatedAt`     | String   | Last-update datetime.                      | Required. ISO-8601 with offset. Must not precede `createdAt`.                      |
+| `items`         | Array    | Actively watched listings.                 | Required (may be empty). At most 500 entries.                                      |
+| `tombstones`    | Array    | Removed watches retained for merge.        | Required (may be empty). At most 500 entries; clients prune oldest-first.          |
+
+`items[]` entries:
+
+| **Field**           | **Type** | **Validation Rules**                                              |
+| ------------------- | -------- | ----------------------------------------------------------------- |
+| `listingOwnerPubky` | String   | Required. 52-character z-base-32 pubky of the seller.             |
+| `listingId`         | String   | Required. Path-safe entity ID (1–128 chars of `[A-Za-z0-9_-]`).   |
+| `watchedAtMs`       | Integer  | Required. Positive safe integer of epoch **milliseconds**.        |
+
+`tombstones[]` entries carry the same `listingOwnerPubky` / `listingId` plus `removedAtMs` under the same rules.
+
+**Validation Notes:**
+
+- **Key uniqueness:** every `(listingOwnerPubky, listingId)` key appears at most once across `items` **and** `tombstones` combined. The document is the post-merge resolved state: a listing is either watched or removed, never both.
+- **Entry timestamps are integer milliseconds** (not ISO-8601 like the document-level datetimes) on purpose: they are last-write-wins merge keys that clients compare numerically, immune to offset-formatting differences between writers.
+- **Merge rule (normative for clients):** per listing key, the entry with the greater timestamp wins (`watchedAtMs` vs `removedAtMs`); ties resolve to the tombstone (deletion wins). The merged document is written back with `revision` incremented.
 
 ---
 

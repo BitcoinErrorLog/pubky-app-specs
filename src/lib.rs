@@ -7,7 +7,7 @@ mod types;
 mod uri;
 
 // Re-export constants
-pub use constants::{APP_PATH, MARKETPLACE_PATH, PROTOCOL, PUBLIC_PATH, VERSION};
+pub use constants::{APP_PATH, MARKETPLACE_PATH, PRIVATE_PATH, PROTOCOL, PUBLIC_PATH, VERSION};
 // Re-export common utilities
 pub use common::validate_crockford_id;
 #[doc(inline)]
@@ -44,6 +44,10 @@ pub use models::review_response::PubkyAppReviewResponse;
 pub use models::shop::PubkyAppShop;
 pub use models::tag::PubkyAppTag;
 pub use models::user::{PubkyAppUser, PubkyAppUserLink};
+pub use models::watchlist::{
+    PubkyAppWatchlist, PubkyAppWatchlistItem, PubkyAppWatchlistTombstone, MAX_WATCHLIST_ITEMS,
+    MAX_WATCHLIST_TOMBSTONES,
+};
 pub use models::PubkyAppObject;
 pub use types::PubkyId;
 #[doc(inline)]
@@ -52,7 +56,7 @@ pub use uri::{
     follow_uri_builder, is_pubky_scheme, last_read_uri_builder, listing_uri_builder,
     marketplace_review_uri_builder, mute_uri_builder, post_uri_builder,
     review_response_uri_builder, shop_uri_builder, tag_uri_builder, try_parse_pubky_path,
-    user_uri_builder, ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
+    user_uri_builder, watchlist_uri_builder, ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
 };
 
 // Our WASM module
