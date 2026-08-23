@@ -1,8 +1,9 @@
 use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse,
-    PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH, MARKETPLACE_PATH, PROTOCOL,
+    PubkyAppListing, PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute,
+    PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
+    APP_PATH, MARKETPLACE_PATH, PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -32,6 +33,7 @@ impl ParsedUri {
             Resource::Feed(id) => PubkyAppFeed::create_path(id),
             Resource::Shop => PubkyAppShop::create_path(),
             Resource::Listing(id) => PubkyAppListing::create_path(id),
+            Resource::Drop(id) => PubkyAppMarketplaceDrop::create_path(id),
             Resource::MarketplaceReview(id) => PubkyAppMarketplaceReview::create_path(id),
             Resource::ReviewResponse(id) => PubkyAppReviewResponse::create_path(id),
             Resource::Unknown => return Err("Cannot convert Unknown resource to URI".to_string()),
@@ -84,6 +86,7 @@ fn resource_from_segments(segments: &[String]) -> Result<Resource, String> {
             let resource_type = format!("{MARKETPLACE_PATH}{res_type}/");
             Ok(match resource_type.as_str() {
                 PubkyAppListing::PATH_SEGMENT => Resource::Listing(id.clone()),
+                PubkyAppMarketplaceDrop::PATH_SEGMENT => Resource::Drop(id.clone()),
                 PubkyAppMarketplaceReview::PATH_SEGMENT => Resource::MarketplaceReview(id.clone()),
                 PubkyAppReviewResponse::PATH_SEGMENT => Resource::ReviewResponse(id.clone()),
                 _ => Resource::Unknown,
@@ -120,8 +123,8 @@ impl TryFrom<String> for ParsedUri {
 #[cfg(test)]
 mod tests {
     use crate::{
-        blob_uri_builder, bookmark_uri_builder, feed_uri_builder, file_uri_builder,
-        follow_uri_builder, last_read_uri_builder, listing_uri_builder,
+        blob_uri_builder, bookmark_uri_builder, drop_uri_builder, feed_uri_builder,
+        file_uri_builder, follow_uri_builder, last_read_uri_builder, listing_uri_builder,
         marketplace_review_uri_builder, mute_uri_builder, post_uri_builder,
         review_response_uri_builder, shop_uri_builder, tag_uri_builder, user_uri_builder,
     };
@@ -280,6 +283,35 @@ mod tests {
             parsed.resource,
             Resource::Listing("0032SSN7Q4EVG".to_string())
         );
+    }
+
+    #[test]
+    fn test_valid_drop_uri() {
+        let uri = drop_uri_builder(USER_ID.into(), "spring-drop-01".into());
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse valid drop URI");
+        assert_eq!(parsed.user_id, PubkyId::try_from(USER_ID).unwrap());
+        assert_eq!(
+            parsed.resource,
+            Resource::Drop("spring-drop-01".to_string())
+        );
+    }
+
+    #[test]
+    fn test_drop_uri_roundtrip() {
+        let drop_id = "spring-drop-01";
+        let original_uri = drop_uri_builder(USER_ID.into(), drop_id.into());
+        let parsed = ParsedUri::try_from(original_uri.clone()).expect("Failed to parse drop URI");
+        let reconstructed_uri = parsed
+            .try_to_uri_str()
+            .expect("Failed to convert to URI string");
+        assert_eq!(original_uri, reconstructed_uri, "Drop URI roundtrip failed");
+    }
+
+    #[test]
+    fn test_marketplace_empty_drop_id_is_unknown() {
+        let uri = format!("pubky://{USER_ID}/pub/pubky.app/marketplace/v1/drops/");
+        let parsed = ParsedUri::try_from(uri).expect("Failed to parse URI");
+        assert_eq!(parsed.resource, Resource::Unknown);
     }
 
     #[test]

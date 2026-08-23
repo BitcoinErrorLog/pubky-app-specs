@@ -7,6 +7,39 @@
 
 Rust types, sanitization, and validation for [Pubky.app](https://pubky.app) data models. Use this crate to build JSON that matches what [Pubky indexers](https://github.com/pubky/pubky-nexus) expect.
 
+## This fork: Pubky Marketplace project
+
+This is `BitcoinErrorLog/pubky-app-specs`, a fork of the official
+[`pubky/pubky-app-specs`](https://github.com/pubky/pubky-app-specs) adding
+the **marketplace protocol objects** (versions `0.6.2-marketplace.N`; the
+npm package name is unchanged). The objects are deliberately fork-only for
+now — official specs parse these paths as `Resource::Unknown` — and no
+upstream PRs are filed while the protocol shape settles.
+
+**Added over upstream** (all closed-world camelCase records with full
+validation, wasm builders, and tests):
+
+- Public records under `/pub/pubky.app/marketplace/v1/…`: **shop** (with
+  the optional `transactionService` authority declaration), **listing**
+  (variants, shipping, auction terms, digital locks, taxonomy-bounded
+  attributes, integer minor-unit money), **review** + **review-response**,
+  and **drop** (timed limited releases, ADR 0026).
+- The first `/priv/` records: the cross-device **watchlist** document and
+  the portable **order receipt** (with optional drop-edition fields) —
+  private, never indexed, deliberately outside the URI parser.
+- Offline-verifiable compact-JWS attestations with normative verification
+  recipes: `pubky-purchase-attestation+v1` (review eligibility),
+  `pubky-order-receipt+v1` (portable receipts), and
+  `pubky-drop-edition+v1` (edition numbers). Signatures prove key
+  possession; trust in `iss` is explicitly the verifier's policy.
+- Collection posts accept canonical listing URIs.
+
+**Fixes:** the listing path-ID rule rejected real UUID-keyed listings until
+`.4`→`.5`; corrected so deployed records parse.
+
+Full changelog and consumption notes: [`MARKETPLACE-FORK.md`](MARKETPLACE-FORK.md);
+normative field tables: [`SPEC.md`](SPEC.md).
+
 > ⚠️ **Warning: Rapid Development Phase**  
 > This specification is in an **early development phase** and is evolving quickly. Expect frequent changes and updates as the system matures. Consider this a **v0 draft**.
 >

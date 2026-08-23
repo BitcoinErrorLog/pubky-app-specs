@@ -2,8 +2,9 @@ use crate::{
     constants::{APP_PATH, PROTOCOL, PUBLIC_PATH},
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppListing,
-    PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop,
-    PubkyAppTag, PubkyAppUser, PubkyAppWatchlist,
+    PubkyAppMarketplaceDrop, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceReview,
+    PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser,
+    PubkyAppWatchlist,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -98,6 +99,13 @@ pub fn listing_uri_builder(seller_id: String, listing_id: String) -> String {
     [PROTOCOL, &seller_id, &listing_path].concat()
 }
 
+/// Builds a Drop URI of the form "pubky://<owner_id>/pub/pubky.app/marketplace/v1/drops/<drop_id>"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = dropUriBuilder))]
+pub fn drop_uri_builder(owner_id: String, drop_id: String) -> String {
+    let drop_path = PubkyAppMarketplaceDrop::create_path(&drop_id);
+    [PROTOCOL, &owner_id, &drop_path].concat()
+}
+
 /// Builds a MarketplaceReview URI of the form "pubky://<author_id>/pub/pubky.app/marketplace/v1/reviews/<review_id>"
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = marketplaceReviewUriBuilder))]
 pub fn marketplace_review_uri_builder(author_id: String, review_id: String) -> String {
@@ -113,6 +121,16 @@ pub fn marketplace_review_uri_builder(author_id: String, review_id: String) -> S
 pub fn watchlist_uri_builder(owner_id: String) -> String {
     let watchlist_path = PubkyAppWatchlist::create_path();
     [PROTOCOL, &owner_id, &watchlist_path].concat()
+}
+
+/// Builds a private OrderReceipt URI of the form "pubky://<owner_id>/priv/pubky.app/marketplace/v1/receipts/<receipt_id>".
+///
+/// Note the `/priv/` prefix: only the owner's own authenticated sessions can
+/// read or write this URI; it is never watcher-indexed.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = orderReceiptUriBuilder))]
+pub fn order_receipt_uri_builder(owner_id: String, receipt_id: String) -> String {
+    let receipt_path = PubkyAppMarketplaceOrderReceipt::create_path(&receipt_id);
+    [PROTOCOL, &owner_id, &receipt_path].concat()
 }
 
 /// Builds a ReviewResponse URI of the form "pubky://<responder_id>/pub/pubky.app/marketplace/v1/review_responses/<review_id>"

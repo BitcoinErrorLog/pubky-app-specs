@@ -163,6 +163,32 @@ pub(crate) fn validate_pubky(value: &str, field: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Validates a lowercase hyphenated UUID (`8-4-4-4-12` lowercase hex),
+/// the identifier form used by the marketplace transaction service.
+pub(crate) fn validate_uuid(value: &str, field: &str) -> Result<(), String> {
+    let error =
+        format!("Validation Error: {field} must be a lowercase hyphenated UUID (8-4-4-4-12)");
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return Err(error);
+    }
+    for (index, byte) in bytes.iter().enumerate() {
+        match index {
+            8 | 13 | 18 | 23 => {
+                if *byte != b'-' {
+                    return Err(error);
+                }
+            }
+            _ => {
+                if !byte.is_ascii_digit() && !(b'a'..=b'f').contains(byte) {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Validates a lowercase 64-character hexadecimal BLAKE3 hash.
 pub(crate) fn validate_hex_hash(value: &str, field: &str) -> Result<(), String> {
     if value.chars().count() != 64
@@ -513,6 +539,21 @@ mod tests {
         assert!(validate_entity_id("", "listingId").is_err());
         assert!(validate_entity_id("has space", "listingId").is_err());
         assert!(validate_entity_id(&"a".repeat(129), "listingId").is_err());
+    }
+
+    #[test]
+    fn test_validate_uuid() {
+        assert!(validate_uuid("a7fc7d5d-0b2a-4083-b278-47193f8fe536", "orderId").is_ok());
+        assert!(validate_uuid("00000000-0000-0000-0000-000000000000", "orderId").is_ok());
+        // Uppercase hex is rejected: the transaction service emits lowercase.
+        assert!(validate_uuid("A7FC7D5D-0B2A-4083-B278-47193F8FE536", "orderId").is_err());
+        // Unhyphenated form is rejected.
+        assert!(validate_uuid("a7fc7d5d0b2a4083b27847193f8fe536", "orderId").is_err());
+        assert!(validate_uuid("a7fc7d5d-0b2a-4083-b278-47193f8fe53", "orderId").is_err());
+        assert!(validate_uuid("a7fc7d5d-0b2a-4083-b278-47193f8fe5366", "orderId").is_err());
+        assert!(validate_uuid("a7fc7d5d-0b2a-4083-b278-47193f8fe53g", "orderId").is_err());
+        assert!(validate_uuid("a7fc7d5d0-b2a-4083-b278-47193f8fe536", "orderId").is_err());
+        assert!(validate_uuid("", "orderId").is_err());
     }
 
     #[test]

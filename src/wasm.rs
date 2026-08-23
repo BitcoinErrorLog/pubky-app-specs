@@ -150,6 +150,16 @@ result_struct!(
     PubkyAppReviewResponse
 );
 result_struct!(WatchlistResult, watchlist, PubkyAppWatchlist);
+result_struct!(
+    MarketplaceOrderReceiptResult,
+    order_receipt,
+    PubkyAppMarketplaceOrderReceipt
+);
+result_struct!(
+    MarketplaceDropResult,
+    marketplace_drop,
+    PubkyAppMarketplaceDrop
+);
 
 #[wasm_bindgen]
 impl PubkySpecsBuilder {
@@ -584,6 +594,62 @@ impl PubkySpecsBuilder {
 
         Ok(WatchlistResult { watchlist, meta })
     }
+
+    // -----------------------------------------------------------------------------
+    // 16. PubkyAppMarketplaceOrderReceipt (PRIVATE record)
+    // -----------------------------------------------------------------------------
+
+    /// Creates a private order receipt record from a plain JSON object
+    /// matching the order receipt schema (camelCase fields). The path ID
+    /// equals the record's `receiptId` (the transaction service's receipt
+    /// UUID). The resulting path/url live under `/priv/pubky.app/` — only
+    /// the owner's authenticated sessions can read or write it.
+    #[wasm_bindgen(js_name = createMarketplaceOrderReceipt)]
+    pub fn create_marketplace_order_receipt(
+        &self,
+        receipt: JsValue,
+    ) -> Result<MarketplaceOrderReceiptResult, String> {
+        let receipt: PubkyAppMarketplaceOrderReceipt =
+            from_value(receipt).map_err(|e| e.to_string())?;
+        let receipt = receipt.sanitize();
+
+        let receipt_id = receipt.receipt_id.clone();
+        receipt.validate(Some(&receipt_id))?;
+
+        let path = PubkyAppMarketplaceOrderReceipt::create_path(&receipt_id);
+        let meta = Meta::from_object(Some(&receipt_id), self.pubky_id.clone(), path);
+
+        Ok(MarketplaceOrderReceiptResult {
+            order_receipt: receipt,
+            meta,
+        })
+    }
+
+    // -----------------------------------------------------------------------------
+    // 17. PubkyAppMarketplaceDrop
+    // -----------------------------------------------------------------------------
+
+    /// Creates a marketplace drop record from a plain JSON object matching
+    /// the marketplace drop schema (camelCase fields). The path ID equals
+    /// the record's `dropId` (a marketplace entity id chosen by the seller).
+    /// The resulting path/url are PUBLIC (`/pub/pubky.app/`) so Nexus can
+    /// index the drop.
+    #[wasm_bindgen(js_name = createMarketplaceDrop)]
+    pub fn create_marketplace_drop(&self, drop: JsValue) -> Result<MarketplaceDropResult, String> {
+        let drop: PubkyAppMarketplaceDrop = from_value(drop).map_err(|e| e.to_string())?;
+        let drop = drop.sanitize();
+
+        let drop_id = drop.drop_id.clone();
+        drop.validate(Some(&drop_id))?;
+
+        let path = PubkyAppMarketplaceDrop::create_path(&drop_id);
+        let meta = Meta::from_object(Some(&drop_id), self.pubky_id.clone(), path);
+
+        Ok(MarketplaceDropResult {
+            marketplace_drop: drop,
+            meta,
+        })
+    }
 }
 
 /// Parses and structurally validates a compact JWS purchase attestation,
@@ -604,6 +670,51 @@ pub fn parse_purchase_attestation(jws: &str) -> Result<JsValue, String> {
 pub fn verify_purchase_attestation(review: JsValue) -> Result<JsValue, String> {
     let review: PubkyAppMarketplaceReview = from_value(review).map_err(|e| e.to_string())?;
     let attestation = PubkyAppPurchaseAttestation::verify_for_review(&review)?;
+    to_value(&attestation.claims).map_err(|e| e.to_string())
+}
+
+/// Parses and structurally validates a compact JWS order receipt
+/// attestation, returning its claims as a plain JSON object. Does NOT
+/// verify the signature — see `verifyOrderReceiptAttestation`.
+#[wasm_bindgen(js_name = parseOrderReceiptAttestation)]
+pub fn parse_order_receipt_attestation(jws: &str) -> Result<JsValue, String> {
+    let attestation = PubkyAppOrderReceiptAttestation::parse(jws)?;
+    to_value(&attestation.claims).map_err(|e| e.to_string())
+}
+
+/// The full local verification recipe for one order receipt record: parses
+/// the record (camelCase JSON) against the spec, parses its embedded
+/// attestation, verifies the Ed25519 signature against the `iss` pubky, and
+/// checks the claim bindings. Returns the verified claims. Whether `iss` is
+/// a *trusted* attestor remains the caller's policy decision.
+#[wasm_bindgen(js_name = verifyOrderReceiptAttestation)]
+pub fn verify_order_receipt_attestation(receipt: JsValue) -> Result<JsValue, String> {
+    let receipt: PubkyAppMarketplaceOrderReceipt =
+        from_value(receipt).map_err(|e| e.to_string())?;
+    let attestation = PubkyAppOrderReceiptAttestation::verify_for_order_receipt(&receipt)?;
+    to_value(&attestation.claims).map_err(|e| e.to_string())
+}
+
+/// Parses and structurally validates a compact JWS drop edition
+/// attestation, returning its claims as a plain JSON object. Does NOT
+/// verify the signature — see `verifyDropEditionAttestation`.
+#[wasm_bindgen(js_name = parseDropEditionAttestation)]
+pub fn parse_drop_edition_attestation(jws: &str) -> Result<JsValue, String> {
+    let attestation = PubkyAppDropEditionAttestation::parse(jws)?;
+    to_value(&attestation.claims).map_err(|e| e.to_string())
+}
+
+/// The full local verification recipe for one drop-order receipt record:
+/// parses the record (camelCase JSON) against the spec, requires both the
+/// `editionAttestation` JWS and the `drop` display object to be present,
+/// verifies the Ed25519 signature against the `iss` pubky, and checks the
+/// claim bindings. Returns the verified claims. Whether `iss` is a
+/// *trusted* attestor remains the caller's policy decision.
+#[wasm_bindgen(js_name = verifyDropEditionAttestation)]
+pub fn verify_drop_edition_attestation(receipt: JsValue) -> Result<JsValue, String> {
+    let receipt: PubkyAppMarketplaceOrderReceipt =
+        from_value(receipt).map_err(|e| e.to_string())?;
+    let attestation = PubkyAppDropEditionAttestation::verify_edition_for_order_receipt(&receipt)?;
     to_value(&attestation.claims).map_err(|e| e.to_string())
 }
 

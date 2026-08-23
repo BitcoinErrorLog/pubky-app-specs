@@ -23,10 +23,14 @@ _Version 0.6.0_
       - [`feed` object (`PubkyAppFeedConfig`)](#feed-object-pubkyappfeedconfig)
     - [PubkyAppShop](#pubkyappshop)
     - [PubkyAppListing](#pubkyapplisting)
+    - [PubkyAppMarketplaceDrop](#pubkyappmarketplacedrop)
     - [PubkyAppMarketplaceReview](#pubkyappmarketplacereview)
     - [Purchase Attestation (embedded JWS)](#purchase-attestation-embedded-jws)
     - [PubkyAppReviewResponse](#pubkyappreviewresponse)
     - [PubkyAppWatchlist (private)](#pubkyappwatchlist-private)
+    - [PubkyAppMarketplaceOrderReceipt (private)](#pubkyappmarketplaceorderreceipt-private)
+    - [Order Receipt Attestation (embedded JWS)](#order-receipt-attestation-embedded-jws)
+    - [Drop Edition Attestation (embedded JWS)](#drop-edition-attestation-embedded-jws)
   - [Validation Rules](#validation-rules)
     - [Common Rules](#common-rules)
   - [License](#license)
@@ -351,6 +355,9 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 | `shippingPolicy` | String   | Default shipping policy.               | Required (may be empty). Trimmed. Maximum length: 4000 characters.                |
 | `returnPolicy`   | String   | Default return policy.                 | Required (may be empty). Trimmed. Maximum length: 4000 characters.                |
 | `vacationMode`   | Boolean  | Whether the shop is paused (vacation). | Required.                                                                          |
+| `transactionService` | String | HTTPS base URL of the marketplace transaction service this shop sells through. | Optional. Must parse as a URL with scheme exactly `https`, no credentials, no query, no fragment; maximum length 300 characters. Absent fields are not serialized (records without it round-trip unchanged). |
+
+**`transactionService` semantics:** when present, clients MUST resolve transactional commands (checkout, offers, bids, orders) for this shop against this authority, falling back to their configured default when absent. Two different services may register the same public listing — the shop record is the seller's declaration of which one is authoritative.
 
 ---
 
@@ -394,6 +401,36 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 **Validation Notes:**
 
 - The `listing_id` in the URI must be a valid **Timestamp ID** and must match the record's `listingId` field.
+
+---
+
+### PubkyAppMarketplaceDrop
+
+**Description:** Represents a marketplace drop: a seller's scheduled, limited-quantity release bundling one or more of their own listings. This is a PUBLIC record (unlike the private order receipt) wired into the URI parser and `PubkyAppObject` so Nexus can index it. All fields are serialized in camelCase and unknown fields are rejected.
+
+**URI:** `/pub/pubky.app/marketplace/v1/drops/:drop_id`
+
+| **Field**        | **Type** | **Description**                              | **Validation Rules**                                                              |
+| ---------------- | -------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `schemaVersion`  | Integer  | Marketplace contract version.                | Required. Must be `1`.                                                             |
+| `recordType`     | String   | Record discriminator.                        | Required. Must be `"drop"`.                                                        |
+| `ownerPubky`     | String   | Pubky of the seller.                         | Required. 52-character z-base-32 pubky.                                            |
+| `revision`       | Integer  | Record revision.                             | Required. Positive safe integer.                                                   |
+| `createdAt`      | String   | Creation datetime.                           | Required. ISO-8601 with offset (`Z` or `±HH:MM`).                                  |
+| `updatedAt`      | String   | Last-update datetime.                        | Required. ISO-8601 with offset. Must not precede `createdAt`.                      |
+| `dropId`         | String   | Drop identifier.                             | Required. Path-safe entity ID (1–128 chars of `[A-Za-z0-9_-]`); must equal the id in the record path. |
+| `title`          | String   | Drop title.                                  | Required. Trimmed. Length: 1–120 characters.                                       |
+| `description`    | String   | Drop description.                            | Required (may be empty). Trimmed. Maximum length: 2000 characters.                 |
+| `media`          | Array    | Promotional media URIs.                      | Required (may be empty). At most 10 unique entries; each must be a Pubky marketplace v1 URI owned by the drop's seller (same rule as listing media URLs). |
+| `format`         | String   | How the drop sells.                          | Required. Only `"fcfs"` (first-come, first-served) in this version — the enum is closed-world, so any future format is a schema version bump. |
+| `startsAt`       | String   | The seller's declared start.                 | Required. ISO-8601 with offset.                                                    |
+| `endsAt`         | String   | The seller's declared end.                   | Optional. ISO-8601 with offset; when present must be strictly after `startsAt`. Absent means the drop ends only by sell-out or seller cancellation. Absent fields are not serialized. |
+| `listingIds`     | Array    | The seller's OWN listings bundled into the drop. | Required. 1–20 unique path-safe entity IDs. The record owner is the listing owner by definition — no cross-owner reference form exists. |
+| `totalQuantity`  | Integer  | Total units across the drop.                 | Required. Integer between 1 and 1000000.                                           |
+| `perBuyerLimit`  | Integer  | Per-buyer purchase cap.                      | Required. Integer between 1 and 100; must not exceed `totalQuantity`.              |
+| `stockDisplay`   | String   | Declared stock-visibility policy.            | Required. One of `"exact"`, `"bands"`, `"hidden"` — how much remaining-stock detail the seller wants the public projection to reveal. |
+
+**Authority note:** `startsAt`/`endsAt` are the seller's declared schedule intent — the marketplace transaction service enforces the real sale window and the real stock counters. Likewise `stockDisplay` is the seller's declared policy; ENFORCEMENT is server-side (the service, which holds the counters, decides what each stock query answers).
 
 ---
 
@@ -521,6 +558,109 @@ It is a **single revisioned document** (singleton per user, like `shop.json`) ra
 - **Key uniqueness:** every `(listingOwnerPubky, listingId)` key appears at most once across `items` **and** `tombstones` combined. The document is the post-merge resolved state: a listing is either watched or removed, never both.
 - **Entry timestamps are integer milliseconds** (not ISO-8601 like the document-level datetimes) on purpose: they are last-write-wins merge keys that clients compare numerically, immune to offset-formatting differences between writers.
 - **Merge rule (normative for clients):** per listing key, the entry with the greater timestamp wins (`watchedAtMs` vs `removedAtMs`); ties resolve to the tombstone (deletion wins). The merged document is written back with `revision` incremented.
+
+---
+
+### PubkyAppMarketplaceOrderReceipt (private)
+
+**Description:** A PRIVATE portable order receipt — the buyer's or seller's own durable copy of a completed order, written to their OWN homeserver. The marketplace transaction service holds the canonical order state, but a service is an operator that can disappear; this record is the **credible exit for orders**: each trade party keeps a signed, self-contained receipt (the embedded `receiptAttestation` JWS is offline-verifiable) on storage they control, so a purchase history survives the operator. All fields are serialized in camelCase and unknown fields are rejected.
+
+**URI:** `/priv/pubky.app/marketplace/v1/receipts/:receipt_id`
+
+**Privacy rationale:** like the watchlist, this is a `/priv/` record — an order history reveals counterparties, amounts, and purchase timing, so it must never be world-readable, directory-listable, or indexable; the homeserver refuses reads, listings, and writes on `/priv/` paths from anyone but the owner's own sessions. It is deliberately **not** wired into `PubkyAppObject` or the URI parser's resource resolution: watchers and indexers never see it. Unlike the watchlist singleton, receipts are one record per order under `receipts/:receipt_id` (the transaction service's receipt UUID, lowercase hyphenated): receipts are immutable facts, not merge targets, and per-id paths let a client sync incrementally instead of rewriting one growing document.
+
+| **Field**            | **Type** | **Description**                              | **Validation Rules**                                                              |
+| -------------------- | -------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `schemaVersion`      | Integer  | Marketplace contract version.                | Required. Must be `1`.                                                             |
+| `recordType`         | String   | Record discriminator.                        | Required. Must be `"order_receipt"`.                                               |
+| `ownerPubky`         | String   | Pubky of the record owner (a trade party).   | Required. 52-character z-base-32 pubky. Must equal `buyerPubky` when `role` is `"buyer"` and `sellerPubky` when `role` is `"seller"`. |
+| `revision`           | Integer  | Record revision.                             | Required. Positive safe integer.                                                   |
+| `createdAt`          | String   | Creation datetime.                           | Required. ISO-8601 with offset (`Z` or `±HH:MM`).                                  |
+| `updatedAt`          | String   | Last-update datetime.                        | Required. ISO-8601 with offset. Must not precede `createdAt`.                      |
+| `role`               | String   | The record owner's side of the order.        | Required. `"buyer"` or `"seller"`.                                                 |
+| `receiptId`          | String   | The service's receipt UUID.                  | Required. Lowercase hyphenated UUID (8-4-4-4-12). Must equal the id in the record path. |
+| `orderId`            | String   | The order UUID the receipt settles.          | Required. Lowercase hyphenated UUID (8-4-4-4-12).                                  |
+| `buyerPubky`         | String   | Pubky of the buyer.                          | Required. 52-character z-base-32 pubky. Must differ from `sellerPubky`.            |
+| `sellerPubky`        | String   | Pubky of the seller.                         | Required. 52-character z-base-32 pubky.                                            |
+| `total`              | Object   | Order total in integer minor units.          | Required. Money object (`amountMinor`, `currency`, `exponent`); positive amount, uppercase 3–12 character asset code, exponent 0–18. |
+| `paidAt`             | String   | Payment confirmation / receipt creation.     | Required. ISO-8601 with offset.                                                    |
+| `receiptAttestation` | String   | Compact JWS attesting the receipt.           | Required. 32–4096 characters of `[A-Za-z0-9._~-]` (same bounds and charset as the review record's `eligibilityAttestation`). |
+| `editionAttestation` | String   | Compact JWS attesting the drop edition (see [Drop Edition Attestation](#drop-edition-attestation-embedded-jws)). | Optional. Same bounds and charset as `receiptAttestation`. Must be present exactly when `drop` is present. Absent fields are not serialized (pre-drop receipts round-trip unchanged). |
+| `drop`               | Object   | Drop display object: `{ dropId, edition, of }`. | Optional. `dropId` path-safe entity ID; `edition` positive integer; `of` positive integer, never below `edition`. Must be present exactly when `editionAttestation` is present. Absent fields are not serialized. |
+
+---
+
+### Order Receipt Attestation (embedded JWS)
+
+**Description:** The normative format of the value carried in an order receipt record's `receiptAttestation`. It is a compact JWS (RFC 7515) signed with EdDSA/Ed25519 (RFC 8037): `base64url(header).base64url(claims).base64url(signature)`, unpadded.
+
+**Header (closed-world, exactly these fields):**
+
+```json
+{ "alg": "EdDSA", "typ": "pubky-order-receipt+v1" }
+```
+
+**Claims (version `v: 1`, closed-world — unknown claims are rejected; issuers serialize claims in exactly this order):**
+
+| **Claim**     | **Type** | **Description**                             | **Validation Rules**                                                                  |
+| ------------- | -------- | ------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `v`           | Integer  | Claim-set version.                          | Required. Must be `1`.                                                                 |
+| `iss`         | String   | Attestor pubky.                             | Required. 52-character z-base-32 pubky; decodes to the Ed25519 verification key.       |
+| `buyer`       | String   | Buyer pubky.                                | Required. Must equal the receipt record's `buyerPubky`.                                |
+| `seller`      | String   | Seller pubky.                               | Required. Must equal the receipt record's `sellerPubky`.                               |
+| `order`       | String   | Raw order UUID.                             | Required. Lowercase hyphenated UUID; must equal the record's `orderId`.                |
+| `receipt`     | String   | Receipt UUID.                               | Required. Lowercase hyphenated UUID; must equal the record's `receiptId`.              |
+| `total_minor` | Integer  | Order total in integer minor units.         | Required. Positive safe integer; must equal the record total's `amountMinor`.          |
+| `currency`    | String   | Asset code.                                 | Required. Same rules as money `currency`; must equal the record total's `currency`.    |
+| `exponent`    | Integer  | Minor/major decimal places.                 | Required. 0–18; must equal the record total's `exponent`.                              |
+| `paid_at`     | String   | Exact instant of payment confirmation.      | Required. ISO-8601 **UTC** (`Z` offset); must equal the record's `paidAt`.             |
+| `iat`         | Integer  | Issuance time (UNIX seconds).               | Required. Must equal the epoch seconds of the `paid_at` instant.                       |
+
+**Why the raw order id (unlike the public purchase attestation):** the purchase attestation travels inside a world-readable review, so its `order_ref` is an attestor-salted hash that nobody but the attestor can link back to an order. Receipts are private documents under `/priv/` that only the trade parties hold — there is no third-party observer to protect the linkage from, and the raw `order` UUID is exactly what makes the receipt actionable against the service (disputes, exports, audits) after the operator disappears.
+
+**Determinism:** issuance is deterministic per receipt. The claims serialize in a fixed field order, `paid_at` is the canonical UTC serialization of the payment instant, `iat` is derived from that same instant (never the signing wall clock), and Ed25519 signatures are deterministic — so a given receipt always yields the same compact JWS, byte for byte.
+
+**Verification recipe (offline, no issuer round-trip):**
+
+1. Parse the compact JWS; reject unknown header fields, unknown claims, and unknown versions.
+2. Decode `iss` from z-base-32 — that *is* the Ed25519 verification key. Verify the signature over `base64url(header) || '.' || base64url(claims)`.
+3. Check bindings against the receipt record: `buyer == buyerPubky`, `seller == sellerPubky`, `order == orderId`, `receipt == receiptId`, `total_minor`/`currency`/`exponent` equal the record's `total`, and `paid_at == paidAt`.
+4. Accept as **verified** only if `iss` is on your own attestor trust list. The signature proves key possession, never legitimacy.
+
+---
+
+### Drop Edition Attestation (embedded JWS)
+
+**Description:** The normative format of the value carried in an order receipt record's `editionAttestation`. It attests that one order bought edition `edition` out of `of` total units of the seller's drop. It is a compact JWS (RFC 7515) signed with EdDSA/Ed25519 (RFC 8037): `base64url(header).base64url(claims).base64url(signature)`, unpadded.
+
+**Header (closed-world, exactly these fields):**
+
+```json
+{ "alg": "EdDSA", "typ": "pubky-drop-edition+v1" }
+```
+
+**Claims (version `v: 1`, closed-world — unknown claims are rejected; issuers serialize claims in exactly this order):**
+
+| **Claim**  | **Type** | **Description**                              | **Validation Rules**                                                                  |
+| ---------- | -------- | -------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `v`        | Integer  | Claim-set version.                           | Required. Must be `1`.                                                                 |
+| `iss`      | String   | Attestor pubky.                              | Required. 52-character z-base-32 pubky; decodes to the Ed25519 verification key.       |
+| `buyer`    | String   | Buyer pubky.                                 | Required. Must equal the receipt record's `buyerPubky`.                                |
+| `seller`   | String   | Seller pubky (the drop owner).               | Required. Must equal the receipt record's `sellerPubky`.                               |
+| `drop`     | String   | The drop's entity id.                        | Required. Path-safe entity ID; must equal the record's `drop.dropId`.                  |
+| `edition`  | Integer  | This order's edition number, 1-based.        | Required. Positive safe integer; must equal the record's `drop.edition`.               |
+| `of`       | Integer  | The drop's `totalQuantity` at issuance.      | Required. Positive safe integer, never below `edition`; must equal the record's `drop.of`. |
+| `receipt`  | String   | Receipt UUID.                                | Required. Lowercase hyphenated UUID; must equal the record's `receiptId`.              |
+| `iat`      | Integer  | Issuance time (UNIX seconds).                | Required. Positive safe integer. Deterministic per receipt — derived from the receipt's payment instant, never the signing wall clock (same doctrine as the receipt attestation). |
+
+**Determinism:** issuance is deterministic per receipt. The claims serialize in a fixed field order, `iat` is derived from the receipt (never the signing wall clock), and Ed25519 signatures are deterministic — so a given receipt always yields the same compact JWS, byte for byte.
+
+**Verification recipe (offline, no issuer round-trip):**
+
+1. Parse the compact JWS; reject unknown header fields, unknown claims, and unknown versions.
+2. Decode `iss` from z-base-32 — that *is* the Ed25519 verification key. Verify the signature over `base64url(header) || '.' || base64url(claims)`.
+3. Check bindings against the receipt record (which must carry BOTH `editionAttestation` and the `drop` object): `receipt == receiptId`, `buyer == buyerPubky`, `seller == sellerPubky`, and `drop`/`edition`/`of` equal the record's `drop` object fields.
+4. Accept as **verified** only if `iss` is on your own attestor trust list. The signature proves key possession, never legitimacy.
 
 ---
 

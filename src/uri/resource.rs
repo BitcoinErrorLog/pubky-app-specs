@@ -1,8 +1,8 @@
 use crate::{
     traits::{HasIdPath, HasPath},
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse,
-    PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
+    PubkyAppListing, PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute,
+    PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -21,6 +21,7 @@ pub enum Resource {
     LastRead,
     Shop,
     Listing(String),
+    Drop(String),
     MarketplaceReview(String),
     ReviewResponse(String),
     #[default]
@@ -44,6 +45,7 @@ impl fmt::Display for Resource {
             Resource::Feed(_) => PubkyAppFeed::PATH_SEGMENT.trim_end_matches('/'),
             Resource::Shop => PubkyAppShop::PATH_SEGMENT,
             Resource::Listing(_) => PubkyAppListing::PATH_SEGMENT.trim_end_matches('/'),
+            Resource::Drop(_) => PubkyAppMarketplaceDrop::PATH_SEGMENT.trim_end_matches('/'),
             Resource::MarketplaceReview(_) => {
                 PubkyAppMarketplaceReview::PATH_SEGMENT.trim_end_matches('/')
             }
@@ -70,6 +72,7 @@ impl Resource {
             Resource::Blob(id) => Some(id.clone()),
             Resource::Feed(id) => Some(id.clone()),
             Resource::Listing(id) => Some(id.clone()),
+            Resource::Drop(id) => Some(id.clone()),
             Resource::MarketplaceReview(id) => Some(id.clone()),
             Resource::ReviewResponse(id) => Some(id.clone()),
             // The following variants do not carry an id.
