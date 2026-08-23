@@ -17,7 +17,7 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.6` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.8` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
   Subsequent fork builds increment the final number (`-marketplace.5`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
@@ -68,6 +68,90 @@ Point the app's dependency at it directly:
 ```json
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
+
+## Changes in `.8`
+
+Marketplace drops (scheduled, limited-quantity releases) and numbered
+drop editions on order receipts:
+
+- **`PubkyAppMarketplaceDrop`** (`src/models/drop.rs`) — PUBLIC entity-id
+  record at `/pub/pubky.app/marketplace/v1/drops/{drop_id}`, wired into
+  `Resource::Drop`, the URI path parser, `PubkyAppObject`, and
+  `dropUriBuilder` (exactly like listings) so Nexus can index it. Fields:
+  base record shape, `dropId` (entity id), `title` 1–120, `description`
+  0–2000, up to 10 unique seller-owned marketplace media URIs, closed-world
+  `format` (only `"fcfs"` in this version — future formats are a version
+  bump), `startsAt` + optional strictly-later `endsAt` (absent = ends by
+  sell-out or cancellation; both are seller intent — the transaction
+  service enforces the real schedule), 1–20 unique `listingIds` (the
+  seller's OWN listings; the record owner is the listing owner by
+  definition), `totalQuantity` 1–1,000,000, `perBuyerLimit` 1–100 and
+  ≤ `totalQuantity`, and the declared `stockDisplay` policy
+  (`exact`/`bands`/`hidden`; enforcement is server-side).
+- **Drop edition attestation format**
+  (`src/models/drop_edition_attestation.rs`) — the normative reference for
+  the compact JWS (EdDSA/Ed25519) carried in a receipt's
+  `editionAttestation`: closed-world header
+  `{"alg":"EdDSA","typ":"pubky-drop-edition+v1"}` and `v: 1` claim set
+  (`iss`, `buyer`, `seller`, `drop`, `edition`, `of` ≥ `edition`,
+  `receipt`, `iat` derived from the receipt's payment instant — same
+  deterministic-issuance doctrine as the receipt attestation), structural
+  parsing, offline signature verification, receipt-record binding checks,
+  and a `verify_edition_for_order_receipt` recipe that requires the
+  record's `editionAttestation` AND `drop` object to both be present.
+  Exported as `PubkyAppDropEditionAttestation` /
+  `PubkyAppDropEditionAttestationClaims`.
+- **Order receipt drop-edition fields** (`src/models/order_receipt.rs`) —
+  two optional fields that must be present together or absent together:
+  `editionAttestation` (same 32–4096 `[A-Za-z0-9._~-]` bounds as
+  `receiptAttestation`) and `drop`
+  (`PubkyAppOrderReceiptDrop { dropId, edition ≥ 1, of ≥ edition }`,
+  closed-world). Absent fields are not serialized, so `.7` receipts
+  round-trip byte-compatibly (covered by a compatibility test).
+- Wiring: `Resource::Drop` + path parsing, `PubkyAppObject::Drop`,
+  `dropUriBuilder`, wasm `createMarketplaceDrop` +
+  `PubkyAppMarketplaceDrop.fromJson`/`toJson`,
+  `parseDropEditionAttestation`, `verifyDropEditionAttestation`, exports,
+  docs (`SPEC.md`), tests.
+
+## Changes in `.7`
+
+Portable private order receipts ("credible exit for orders") and the shop's
+transaction-service declaration:
+
+- **`PubkyAppMarketplaceOrderReceipt`** (`src/models/order_receipt.rs`) —
+  private per-order record at
+  `/priv/pubky.app/marketplace/v1/receipts/{receipt_id}` (the transaction
+  service's receipt UUID, lowercase hyphenated). The buyer or seller writes
+  their own copy of a completed order — role/owner binding enforced
+  (`ownerPubky` must equal `buyerPubky` when `role == "buyer"`, `sellerPubky`
+  when `"seller"`), distinct parties, money `total`, `paidAt`, and a
+  32–4096-char `receiptAttestation` compact JWS — so a signed purchase
+  history survives the marketplace operator's disappearance. Like the
+  watchlist, deliberately NOT wired into `PubkyAppObject` / URI resource
+  resolution; never indexed.
+- **Order receipt attestation format**
+  (`src/models/order_receipt_attestation.rs`) — the normative reference for
+  the compact JWS (EdDSA/Ed25519) carried in `receiptAttestation`:
+  closed-world header `{"alg":"EdDSA","typ":"pubky-order-receipt+v1"}` and
+  `v: 1` claim set (`iss`, `buyer`, `seller`, raw `order` UUID — receipts
+  are private, so no salted ref — `receipt`, `total_minor`, `currency`,
+  `exponent`, `paid_at` UTC, `iat` derived from `paid_at`), structural
+  parsing, offline signature verification (the `iss` pubky *is* the
+  verification key), record-binding checks, and deterministic issuance (a
+  given receipt always yields the same JWS). Exported as
+  `PubkyAppOrderReceiptAttestation` / `PubkyAppOrderReceiptAttestationClaims`.
+- **Shop `transactionService` field** (`src/models/shop.rs`) — optional
+  HTTPS base URL of the marketplace transaction service the shop sells
+  through (scheme exactly `https`, no credentials/query/fragment, ≤ 300
+  chars). Clients MUST resolve transactional commands (checkout, offers,
+  bids, orders) for the shop against this authority when present, falling
+  back to their configured default when absent; absence keeps
+  byte-compatibility with `.6` records.
+- Wiring: `orderReceiptUriBuilder`, wasm `createMarketplaceOrderReceipt` +
+  `PubkyAppMarketplaceOrderReceipt.fromJson`/`toJson`,
+  `parseOrderReceiptAttestation`, `verifyOrderReceiptAttestation`, exports,
+  docs (`SPEC.md`), tests.
 
 ## Changes in `.6`
 

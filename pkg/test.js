@@ -1,5 +1,6 @@
-import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, getValidMimeTypes } from "./index.js";
+import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, getValidMimeTypes } from "./index.js";
 import { createRequire } from "node:module";
+import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import assert from "assert";
 
 const require = createRequire(import.meta.url);
@@ -520,6 +521,366 @@ describe("PubkySpecs Example Objects Tests", () => {
         removedAtMs: 1,
       });
       assert.throws(() => specsBuilder.createWatchlist(body));
+    });
+  });
+
+  describe("Marketplace order receipt Pubky-app-specs (private)", () => {
+    const RECEIPT_ID = "a7fc7d5d-0b2a-4083-b278-47193f8fe536";
+    const ORDER_ID = "0e9c2c4a-91d6-4a4e-8db3-2f14c1e8b7aa";
+    const PAID_AT = "2026-01-02T03:04:05Z";
+
+    const receiptBody = () => ({
+      schemaVersion: 1,
+      recordType: "order_receipt",
+      ownerPubky: OTTO,
+      revision: 1,
+      createdAt: PAID_AT,
+      updatedAt: PAID_AT,
+      role: "buyer",
+      receiptId: RECEIPT_ID,
+      orderId: ORDER_ID,
+      buyerPubky: OTTO,
+      sellerPubky: RIO,
+      total: { amountMinor: 12000, currency: "USD", exponent: 2 },
+      paidAt: PAID_AT,
+      receiptAttestation: "a".repeat(64),
+    });
+
+    // z-base-32 encoding of raw bytes (the pubky encoding of Ed25519 keys).
+    const zbase32 = (bytes) => {
+      const alphabet = "ybndrfg8ejkmcpqxot1uwisza345h769";
+      let bits = 0, accumulator = 0, out = "";
+      for (const byte of bytes) {
+        accumulator = (accumulator << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+          bits -= 5;
+          out += alphabet[(accumulator >> bits) & 31];
+        }
+      }
+      if (bits > 0) out += alphabet[(accumulator << (5 - bits)) & 31];
+      return out;
+    };
+
+    const b64u = (data) => Buffer.from(data).toString("base64url");
+
+    it("should create a private order receipt under /priv with id = receiptId", () => {
+      const { order_receipt, meta } = specsBuilder.createMarketplaceOrderReceipt(receiptBody());
+
+      assert.strictEqual(meta.id, RECEIPT_ID, "Meta id must be the receipt UUID");
+      assert.strictEqual(
+        meta.path,
+        `/priv/pubky.app/marketplace/v1/receipts/${RECEIPT_ID}`,
+        "Receipt path must live under /priv"
+      );
+      assert.strictEqual(
+        meta.url,
+        `pubky://${OTTO}/priv/pubky.app/marketplace/v1/receipts/${RECEIPT_ID}`,
+        "Receipt URL must be the owner's private URI"
+      );
+      assert.strictEqual(
+        meta.url,
+        orderReceiptUriBuilder(OTTO, RECEIPT_ID),
+        "URI builder must agree with meta"
+      );
+
+      const json = order_receipt.toJson();
+      assert.strictEqual(json.recordType, "order_receipt");
+      assert.strictEqual(json.role, "buyer");
+      assert.strictEqual(json.total.amountMinor, 12000);
+
+      const roundtrip = PubkyAppMarketplaceOrderReceipt.fromJson(json);
+      assert.strictEqual(roundtrip.toJson().orderId, ORDER_ID);
+    });
+
+    it("should reject an owner/role mismatch", () => {
+      const body = receiptBody();
+      body.role = "seller"; // owner OTTO is the buyer, not the seller
+      assert.throws(() => specsBuilder.createMarketplaceOrderReceipt(body));
+    });
+
+    it("should verify a real Ed25519 receipt attestation end to end", () => {
+      const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+      const rawPublicKey = Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url");
+      const iss = zbase32(rawPublicKey);
+      assert.strictEqual(iss.length, 52, "iss must be a 52-char pubky");
+
+      const claims = {
+        v: 1,
+        iss,
+        buyer: OTTO,
+        seller: RIO,
+        order: ORDER_ID,
+        receipt: RECEIPT_ID,
+        total_minor: 12000,
+        currency: "USD",
+        exponent: 2,
+        paid_at: PAID_AT,
+        iat: Date.parse(PAID_AT) / 1000,
+      };
+      const header = b64u(JSON.stringify({ alg: "EdDSA", typ: "pubky-order-receipt+v1" }));
+      const payload = b64u(JSON.stringify(claims));
+      const signature = cryptoSign(null, Buffer.from(`${header}.${payload}`), privateKey);
+      const jws = `${header}.${payload}.${b64u(signature)}`;
+
+      const parsed = parseOrderReceiptAttestation(jws);
+      assert.strictEqual(parsed.iss, iss, "Parsed claims must carry the attestor pubky");
+
+      const body = receiptBody();
+      body.receiptAttestation = jws;
+      const verified = verifyOrderReceiptAttestation(body);
+      assert.strictEqual(verified.receipt, RECEIPT_ID, "Verified claims must bind the receipt");
+      assert.strictEqual(verified.total_minor, 12000, "Verified claims must bind the total");
+    });
+
+    it("should reject an attestation that does not verify", () => {
+      // Structurally charset-valid but not a real JWS.
+      assert.throws(() => verifyOrderReceiptAttestation(receiptBody()));
+      // Structurally invalid compact form.
+      assert.throws(() => parseOrderReceiptAttestation("not.a.jws"));
+    });
+
+    it("should keep parsing a .7-shaped receipt without the drop-edition fields", () => {
+      const { order_receipt } = specsBuilder.createMarketplaceOrderReceipt(receiptBody());
+      const json = order_receipt.toJson();
+      assert.ok(!("editionAttestation" in json) || json.editionAttestation == null,
+        "Absent editionAttestation must stay absent");
+      assert.ok(!("drop" in json) || json.drop == null, "Absent drop must stay absent");
+
+      const roundtrip = PubkyAppMarketplaceOrderReceipt.fromJson(json).toJson();
+      assert.ok(!("editionAttestation" in roundtrip) || roundtrip.editionAttestation == null,
+        "Roundtrip must not invent editionAttestation");
+      assert.ok(!("drop" in roundtrip) || roundtrip.drop == null, "Roundtrip must not invent drop");
+    });
+
+    it("should reject editionAttestation without the drop object (and vice versa)", () => {
+      const lonelyAttestation = receiptBody();
+      lonelyAttestation.editionAttestation = "b".repeat(64);
+      assert.throws(() => specsBuilder.createMarketplaceOrderReceipt(lonelyAttestation));
+
+      const lonelyDrop = receiptBody();
+      lonelyDrop.drop = { dropId: "spring-drop-01", edition: 7, of: 500 };
+      assert.throws(() => specsBuilder.createMarketplaceOrderReceipt(lonelyDrop));
+    });
+
+    it("should accept a receipt carrying both drop-edition fields", () => {
+      const body = receiptBody();
+      body.editionAttestation = "b".repeat(64);
+      body.drop = { dropId: "spring-drop-01", edition: 7, of: 500 };
+      const { order_receipt } = specsBuilder.createMarketplaceOrderReceipt(body);
+      const json = order_receipt.toJson();
+      assert.strictEqual(json.drop.dropId, "spring-drop-01");
+      assert.strictEqual(json.drop.edition, 7);
+      assert.strictEqual(json.drop.of, 500);
+      assert.strictEqual(json.editionAttestation, "b".repeat(64));
+    });
+  });
+
+  describe("Marketplace drop Pubky-app-specs", () => {
+    const DROP_ID = "spring-drop-01";
+
+    const dropBody = () => ({
+      schemaVersion: 1,
+      recordType: "drop",
+      ownerPubky: OTTO,
+      revision: 1,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-02T00:00:00Z",
+      dropId: DROP_ID,
+      title: "Spring boot drop",
+      description: "Limited spring release.",
+      media: [`pubky://${OTTO}/pub/pubky.app/marketplace/v1/media/drop_banner`],
+      format: "fcfs",
+      startsAt: "2026-02-01T00:00:00Z",
+      endsAt: "2026-02-02T00:00:00Z",
+      listingIds: ["listing_01", "listing_02"],
+      totalQuantity: 500,
+      perBuyerLimit: 2,
+      stockDisplay: "bands",
+    });
+
+    it("should create a public drop with id = dropId", () => {
+      const { marketplace_drop, meta } = specsBuilder.createMarketplaceDrop(dropBody());
+
+      assert.strictEqual(meta.id, DROP_ID, "Meta id must be the dropId");
+      assert.strictEqual(
+        meta.path,
+        `/pub/pubky.app/marketplace/v1/drops/${DROP_ID}`,
+        "Drop path must live under /pub so it can be indexed"
+      );
+      assert.strictEqual(
+        meta.url,
+        `pubky://${OTTO}/pub/pubky.app/marketplace/v1/drops/${DROP_ID}`,
+        "Drop URL must be the owner's public URI"
+      );
+      assert.strictEqual(meta.url, dropUriBuilder(OTTO, DROP_ID), "URI builder must agree with meta");
+
+      const json = marketplace_drop.toJson();
+      assert.strictEqual(json.recordType, "drop");
+      assert.strictEqual(json.format, "fcfs");
+      assert.strictEqual(json.stockDisplay, "bands");
+      assert.strictEqual(json.totalQuantity, 500);
+      assert.strictEqual(json.perBuyerLimit, 2);
+
+      const roundtrip = PubkyAppMarketplaceDrop.fromJson(json);
+      assert.strictEqual(roundtrip.toJson().dropId, DROP_ID);
+    });
+
+    it("should accept an open-ended drop without endsAt", () => {
+      const body = dropBody();
+      delete body.endsAt;
+      const { marketplace_drop } = specsBuilder.createMarketplaceDrop(body);
+      const json = marketplace_drop.toJson();
+      assert.ok(!("endsAt" in json) || json.endsAt == null, "Absent endsAt must stay absent");
+    });
+
+    it("should reject endsAt at or before startsAt", () => {
+      const body = dropBody();
+      body.endsAt = body.startsAt;
+      assert.throws(() => specsBuilder.createMarketplaceDrop(body));
+    });
+
+    it("should reject perBuyerLimit above totalQuantity", () => {
+      const body = dropBody();
+      body.totalQuantity = 3;
+      body.perBuyerLimit = 4;
+      assert.throws(() => specsBuilder.createMarketplaceDrop(body));
+    });
+
+    it("should reject unknown format values (closed-world enum)", () => {
+      const body = dropBody();
+      body.format = "auction";
+      assert.throws(() => specsBuilder.createMarketplaceDrop(body));
+    });
+
+    it("should reject duplicate listingIds", () => {
+      const body = dropBody();
+      body.listingIds = ["listing_01", "listing_01"];
+      assert.throws(() => specsBuilder.createMarketplaceDrop(body));
+    });
+  });
+
+  describe("Drop edition attestation Pubky-app-specs", () => {
+    const RECEIPT_ID = "a7fc7d5d-0b2a-4083-b278-47193f8fe536";
+    const ORDER_ID = "0e9c2c4a-91d6-4a4e-8db3-2f14c1e8b7aa";
+    const DROP_ID = "spring-drop-01";
+    const PAID_AT = "2026-01-02T03:04:05Z";
+
+    // z-base-32 encoding of raw bytes (the pubky encoding of Ed25519 keys).
+    const zbase32 = (bytes) => {
+      const alphabet = "ybndrfg8ejkmcpqxot1uwisza345h769";
+      let bits = 0, accumulator = 0, out = "";
+      for (const byte of bytes) {
+        accumulator = (accumulator << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+          bits -= 5;
+          out += alphabet[(accumulator >> bits) & 31];
+        }
+      }
+      if (bits > 0) out += alphabet[(accumulator << (5 - bits)) & 31];
+      return out;
+    };
+
+    const b64u = (data) => Buffer.from(data).toString("base64url");
+
+    const receiptWithDrop = (editionAttestation) => ({
+      schemaVersion: 1,
+      recordType: "order_receipt",
+      ownerPubky: OTTO,
+      revision: 1,
+      createdAt: PAID_AT,
+      updatedAt: PAID_AT,
+      role: "buyer",
+      receiptId: RECEIPT_ID,
+      orderId: ORDER_ID,
+      buyerPubky: OTTO,
+      sellerPubky: RIO,
+      total: { amountMinor: 12000, currency: "USD", exponent: 2 },
+      paidAt: PAID_AT,
+      receiptAttestation: "a".repeat(64),
+      editionAttestation,
+      drop: { dropId: DROP_ID, edition: 7, of: 500 },
+    });
+
+    it("should verify a real Ed25519 drop edition attestation end to end", () => {
+      const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+      const rawPublicKey = Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url");
+      const iss = zbase32(rawPublicKey);
+      assert.strictEqual(iss.length, 52, "iss must be a 52-char pubky");
+
+      const claims = {
+        v: 1,
+        iss,
+        buyer: OTTO,
+        seller: RIO,
+        drop: DROP_ID,
+        edition: 7,
+        of: 500,
+        receipt: RECEIPT_ID,
+        iat: Date.parse(PAID_AT) / 1000,
+      };
+      const header = b64u(JSON.stringify({ alg: "EdDSA", typ: "pubky-drop-edition+v1" }));
+      const payload = b64u(JSON.stringify(claims));
+      const signature = cryptoSign(null, Buffer.from(`${header}.${payload}`), privateKey);
+      const jws = `${header}.${payload}.${b64u(signature)}`;
+
+      const parsed = parseDropEditionAttestation(jws);
+      assert.strictEqual(parsed.iss, iss, "Parsed claims must carry the attestor pubky");
+      assert.strictEqual(parsed.edition, 7, "Parsed claims must carry the edition");
+
+      const verified = verifyDropEditionAttestation(receiptWithDrop(jws));
+      assert.strictEqual(verified.drop, DROP_ID, "Verified claims must bind the drop");
+      assert.strictEqual(verified.of, 500, "Verified claims must bind the drop total");
+    });
+
+    it("should reject a receipt missing the drop object or the attestation", () => {
+      const noDrop = receiptWithDrop("b".repeat(64));
+      delete noDrop.drop;
+      delete noDrop.editionAttestation;
+      assert.throws(() => verifyDropEditionAttestation(noDrop));
+
+      // Structurally invalid compact form.
+      assert.throws(() => parseDropEditionAttestation("not.a.jws"));
+    });
+  });
+
+  describe("Shop transactionService Pubky-app-specs", () => {
+    const shopBody = () => ({
+      schemaVersion: 1,
+      recordType: "shop",
+      ownerPubky: OTTO,
+      revision: 1,
+      createdAt: "2025-01-01T00:00:00Z",
+      updatedAt: "2025-01-02T00:00:00Z",
+      name: "Boots & Co",
+      bio: "Quality hiking boots.",
+      location: { countryCode: "US", region: "Oregon" },
+      shippingPolicy: "Ships within 3 business days.",
+      returnPolicy: "Returns accepted within 30 days.",
+      vacationMode: false,
+    });
+
+    it("should accept a shop with an https transactionService", () => {
+      const body = shopBody();
+      body.transactionService = "https://tx.example.com";
+      const { shop } = specsBuilder.createShop(body);
+      assert.strictEqual(shop.toJson().transactionService, "https://tx.example.com");
+    });
+
+    it("should reject a non-https transactionService", () => {
+      const body = shopBody();
+      body.transactionService = "http://tx.example.com";
+      assert.throws(() => specsBuilder.createShop(body));
+    });
+
+    it("should keep parsing a .6-shaped shop without the field", () => {
+      const { shop } = specsBuilder.createShop(shopBody());
+      const json = shop.toJson();
+      assert.ok(
+        !("transactionService" in json) || json.transactionService == null,
+        "Absent transactionService must stay absent"
+      );
     });
   });
 

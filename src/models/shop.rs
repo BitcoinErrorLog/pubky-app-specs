@@ -7,6 +7,7 @@ use crate::{
     APP_PATH, PUBLIC_PATH,
 };
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[cfg(target_arch = "wasm32")]
 use crate::traits::Json;
@@ -21,6 +22,7 @@ const SHOP_RECORD_TYPE: &str = "shop";
 const MAX_SHOP_NAME_LENGTH: usize = 60;
 const MAX_SHOP_BIO_LENGTH: usize = 1000;
 const MAX_SHOP_POLICY_LENGTH: usize = 4000;
+const MAX_TRANSACTION_SERVICE_LENGTH: usize = 300;
 
 /// Represents a seller's marketplace shop profile (singleton per user).
 ///
@@ -63,6 +65,15 @@ pub struct PubkyAppShop {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub return_policy: String,
     pub vacation_mode: bool,
+    /// HTTPS base URL of the marketplace transaction service this shop
+    /// sells through. When present, clients MUST resolve transactional
+    /// commands (checkout, offers, bids, orders) for this shop against this
+    /// authority, falling back to their configured default when absent. Two
+    /// different services may register the same public listing — the shop
+    /// record is the seller's declaration of which one is authoritative.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_service: Option<String>,
 }
 
 impl PubkyAppShop {
@@ -81,6 +92,7 @@ impl PubkyAppShop {
         shipping_policy: String,
         return_policy: String,
         vacation_mode: bool,
+        transaction_service: Option<String>,
     ) -> Self {
         Self {
             schema_version: MARKETPLACE_SCHEMA_VERSION,
@@ -97,6 +109,7 @@ impl PubkyAppShop {
             shipping_policy,
             return_policy,
             vacation_mode,
+            transaction_service,
         }
         .sanitize()
     }
@@ -136,6 +149,31 @@ impl PubkyAppShop {
 
 #[cfg(target_arch = "wasm32")]
 impl Json for PubkyAppShop {}
+
+/// Validates a transaction-service authority: an HTTPS base URL with no
+/// credentials, query, or fragment, at most 300 characters.
+fn validate_transaction_service(value: &str) -> Result<(), String> {
+    if value.chars().count() > MAX_TRANSACTION_SERVICE_LENGTH {
+        return Err(format!(
+            "Validation Error: transactionService must be at most {MAX_TRANSACTION_SERVICE_LENGTH} characters"
+        ));
+    }
+    let parsed = Url::parse(value)
+        .map_err(|_| "Validation Error: transactionService must be a valid URL".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("Validation Error: transactionService must use the https scheme".into());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("Validation Error: transactionService must not contain credentials".into());
+    }
+    if parsed.query().is_some() {
+        return Err("Validation Error: transactionService must not contain a query".into());
+    }
+    if parsed.fragment().is_some() {
+        return Err("Validation Error: transactionService must not contain a fragment".into());
+    }
+    Ok(())
+}
 
 impl HasPath for PubkyAppShop {
     const PATH_SEGMENT: &'static str = "marketplace/v1/shop.json";
@@ -201,6 +239,10 @@ impl Validatable for PubkyAppShop {
             ));
         }
 
+        if let Some(transaction_service) = &self.transaction_service {
+            validate_transaction_service(transaction_service)?;
+        }
+
         Ok(())
     }
 }
@@ -231,6 +273,7 @@ mod tests {
             "Ships within 3 business days.".to_string(),
             "Returns accepted within 30 days.".to_string(),
             false,
+            None,
         )
     }
 
@@ -265,6 +308,7 @@ mod tests {
             "  ship  ".to_string(),
             "  return  ".to_string(),
             true,
+            None,
         );
         assert_eq!(shop.name, "Boots & Co");
         assert_eq!(shop.bio, "bio");
@@ -353,5 +397,96 @@ mod tests {
         let mut shop = valid_shop();
         shop.owner_pubky = "not-a-pubky".to_string();
         assert!(shop.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_transaction_service_valid_https_url() {
+        let mut shop = valid_shop();
+        shop.transaction_service = Some("https://tx.example.com".to_string());
+        assert!(shop.validate(None).is_ok());
+
+        shop.transaction_service = Some("https://tx.example.com/api/v1".to_string());
+        assert!(shop.validate(None).is_ok());
+    }
+
+    #[test]
+    fn test_transaction_service_rejects_http() {
+        let mut shop = valid_shop();
+        shop.transaction_service = Some("http://tx.example.com".to_string());
+        assert!(shop.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_transaction_service_rejects_query_fragment_userinfo() {
+        let mut shop = valid_shop();
+        shop.transaction_service = Some("https://tx.example.com/?a=1".to_string());
+        assert!(shop.validate(None).is_err());
+
+        shop.transaction_service = Some("https://tx.example.com/#section".to_string());
+        assert!(shop.validate(None).is_err());
+
+        shop.transaction_service = Some("https://user@tx.example.com".to_string());
+        assert!(shop.validate(None).is_err());
+
+        shop.transaction_service = Some("https://user:pass@tx.example.com".to_string());
+        assert!(shop.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_transaction_service_rejects_too_long() {
+        let mut shop = valid_shop();
+        shop.transaction_service = Some(format!("https://tx.example.com/{}", "a".repeat(300)));
+        assert!(shop.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_transaction_service_rejects_not_a_url() {
+        let mut shop = valid_shop();
+        shop.transaction_service = Some("not a url".to_string());
+        assert!(shop.validate(None).is_err());
+    }
+
+    #[test]
+    fn test_transaction_service_absent_when_none() {
+        // Byte-compatibility with `.6` records: None must not serialize.
+        let shop = valid_shop();
+        let value = serde_json::to_value(&shop).unwrap();
+        assert!(value.get("transactionService").is_none());
+    }
+
+    #[test]
+    fn test_parses_marketplace_6_shaped_shop_without_field() {
+        // A `.6`-era shop JSON (no transactionService) must keep parsing.
+        let json = format!(
+            r#"{{
+                "schemaVersion": 1,
+                "recordType": "shop",
+                "ownerPubky": "{OWNER}",
+                "revision": 1,
+                "createdAt": "2025-01-01T00:00:00Z",
+                "updatedAt": "2025-01-02T00:00:00Z",
+                "name": "Boots & Co",
+                "bio": "Quality hiking boots.",
+                "location": {{ "countryCode": "US", "region": "Oregon" }},
+                "shippingPolicy": "Ships within 3 business days.",
+                "returnPolicy": "Returns accepted within 30 days.",
+                "vacationMode": false
+            }}"#
+        );
+        let parsed = <PubkyAppShop as Validatable>::try_from(json.as_bytes(), "").unwrap();
+        assert_eq!(parsed.transaction_service, None);
+        // And round-trips without gaining the field.
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert!(value.get("transactionService").is_none());
+    }
+
+    #[test]
+    fn test_transaction_service_roundtrip_when_present() {
+        let mut shop = valid_shop();
+        shop.transaction_service = Some("https://tx.example.com".to_string());
+        let json = serde_json::to_string(&shop).unwrap();
+        assert!(json.contains("\"transactionService\":\"https://tx.example.com\""));
+        let parsed = <PubkyAppShop as Validatable>::try_from(json.as_bytes(), "").unwrap();
+        assert_eq!(parsed, shop);
     }
 }

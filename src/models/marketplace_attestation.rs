@@ -253,7 +253,7 @@ fn validate_claims(claims: &PubkyAppPurchaseAttestationClaims) -> Result<(), Str
     Ok(())
 }
 
-fn attestation_error(validation_error: String) -> String {
+pub(crate) fn attestation_error(validation_error: String) -> String {
     validation_error.replace("Validation Error:", "Attestation Error:")
 }
 
@@ -315,7 +315,7 @@ fn validate_amount_band(value: &str) -> Result<(), String> {
 
 /// Decodes unpadded base64url (RFC 4648 §5). Padding characters and
 /// non-alphabet characters are rejected.
-fn base64url_decode(input: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64url_decode(input: &str) -> Option<Vec<u8>> {
     fn value_of(c: u8) -> Option<u32> {
         match c {
             b'A'..=b'Z' => Some(u32::from(c - b'A')),
@@ -376,7 +376,7 @@ pub fn base64url_encode(input: &[u8]) -> String {
 }
 
 /// Decodes a 52-character z-base-32 pubky into its 32-byte Ed25519 key.
-fn zbase32_decode_pubky(pubky: &str) -> Option<[u8; 32]> {
+pub(crate) fn zbase32_decode_pubky(pubky: &str) -> Option<[u8; 32]> {
     let bytes = pubky.as_bytes();
     if bytes.len() != 52 {
         return None;

@@ -2,6 +2,8 @@ use crate::{traits::Validatable, ParsedUri, Resource};
 
 pub mod blob;
 pub mod bookmark;
+pub mod drop;
+pub mod drop_edition_attestation;
 pub mod feed;
 pub mod file;
 pub mod follow;
@@ -11,6 +13,8 @@ pub mod marketplace;
 pub mod marketplace_attestation;
 pub mod marketplace_review;
 pub mod mute;
+pub mod order_receipt;
+pub mod order_receipt_attestation;
 pub mod post;
 pub mod review_response;
 pub mod shop;
@@ -20,8 +24,8 @@ pub mod watchlist;
 
 use super::{
     PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse,
-    PubkyAppShop, PubkyAppTag, PubkyAppUser,
+    PubkyAppListing, PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute,
+    PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser,
 };
 
 /// A unified enum wrapping all PubkyApp objects.
@@ -39,6 +43,7 @@ pub enum PubkyAppObject {
     LastRead(last_read::PubkyAppLastRead),
     Shop(shop::PubkyAppShop),
     Listing(Box<listing::PubkyAppListing>),
+    Drop(drop::PubkyAppMarketplaceDrop),
     MarketplaceReview(marketplace_review::PubkyAppMarketplaceReview),
     ReviewResponse(review_response::PubkyAppReviewResponse),
 }
@@ -104,6 +109,10 @@ impl PubkyAppObject {
             Resource::Listing(listing_id) => {
                 let listing = <PubkyAppListing as Validatable>::try_from(blob, listing_id)?;
                 Ok(PubkyAppObject::Listing(Box::new(listing)))
+            }
+            Resource::Drop(drop_id) => {
+                let drop = <PubkyAppMarketplaceDrop as Validatable>::try_from(blob, drop_id)?;
+                Ok(PubkyAppObject::Drop(drop))
             }
             Resource::MarketplaceReview(review_id) => {
                 let review = <PubkyAppMarketplaceReview as Validatable>::try_from(blob, review_id)?;
@@ -524,6 +533,46 @@ mod tests {
                 );
             }
             other => panic!("Expected a Listing object, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_import_drop() {
+        let owner = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+        let drop = crate::PubkyAppMarketplaceDrop::new(
+            owner.to_string(),
+            1,
+            "2026-01-01T00:00:00Z".to_string(),
+            "2026-01-02T00:00:00Z".to_string(),
+            "spring-drop-01".to_string(),
+            "Spring boot drop".to_string(),
+            "Limited spring release.".to_string(),
+            vec![format!(
+                "pubky://{owner}/pub/pubky.app/marketplace/v1/media/drop_banner"
+            )],
+            crate::PubkyAppDropFormat::Fcfs,
+            "2026-02-01T00:00:00Z".to_string(),
+            Some("2026-02-02T00:00:00Z".to_string()),
+            vec!["listing_01".to_string()],
+            500,
+            2,
+            crate::PubkyAppDropStockDisplay::Exact,
+        );
+
+        let uri = crate::drop_uri_builder(owner.into(), drop.drop_id.clone());
+        let drop_json = serde_json::to_string(&drop).unwrap();
+        let result = PubkyAppObject::from_uri(uri, drop_json.as_bytes());
+        assert!(
+            result.is_ok(),
+            "Expected a successful import for drop, got error: {:?}",
+            result.err()
+        );
+        match result.unwrap() {
+            PubkyAppObject::Drop(imported) => {
+                assert_eq!(imported.title, "Spring boot drop", "Drop title mismatch");
+                assert_eq!(imported.drop_id, drop.drop_id, "Drop ID mismatch");
+            }
+            other => panic!("Expected a Drop object, got {:?}", other),
         }
     }
 

@@ -15,6 +15,11 @@ pub use limits::*;
 // Re-export domain types
 pub use models::blob::PubkyAppBlob;
 pub use models::bookmark::PubkyAppBookmark;
+pub use models::drop::{PubkyAppDropFormat, PubkyAppDropStockDisplay, PubkyAppMarketplaceDrop};
+pub use models::drop_edition_attestation::{
+    PubkyAppDropEditionAttestation, PubkyAppDropEditionAttestationClaims,
+    DROP_EDITION_ATTESTATION_TYP, DROP_EDITION_ATTESTATION_VERSION,
+};
 pub use models::feed::{PubkyAppFeed, PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort};
 pub use models::file::{PubkyAppFile, VALID_MIME_TYPES};
 pub use models::follow::PubkyAppFollow;
@@ -36,6 +41,13 @@ pub use models::marketplace_review::{
     PubkyAppMarketplaceReview, PubkyAppReviewRatings, PubkyAppReviewRole,
 };
 pub use models::mute::PubkyAppMute;
+pub use models::order_receipt::{
+    PubkyAppMarketplaceOrderReceipt, PubkyAppOrderReceiptDrop, PubkyAppOrderReceiptRole,
+};
+pub use models::order_receipt_attestation::{
+    PubkyAppOrderReceiptAttestation, PubkyAppOrderReceiptAttestationClaims,
+    ORDER_RECEIPT_ATTESTATION_TYP, ORDER_RECEIPT_ATTESTATION_VERSION,
+};
 pub use models::post::{
     PubkyAppCollectionContent, PubkyAppCollectionLayout, PubkyAppPost, PubkyAppPostEmbed,
     PubkyAppPostKind,
@@ -52,11 +64,12 @@ pub use models::PubkyAppObject;
 pub use types::PubkyId;
 #[doc(inline)]
 pub use uri::{
-    base_uri_builder, blob_uri_builder, bookmark_uri_builder, feed_uri_builder, file_uri_builder,
-    follow_uri_builder, is_pubky_scheme, last_read_uri_builder, listing_uri_builder,
-    marketplace_review_uri_builder, mute_uri_builder, post_uri_builder,
-    review_response_uri_builder, shop_uri_builder, tag_uri_builder, try_parse_pubky_path,
-    user_uri_builder, watchlist_uri_builder, ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
+    base_uri_builder, blob_uri_builder, bookmark_uri_builder, drop_uri_builder, feed_uri_builder,
+    file_uri_builder, follow_uri_builder, is_pubky_scheme, last_read_uri_builder,
+    listing_uri_builder, marketplace_review_uri_builder, mute_uri_builder,
+    order_receipt_uri_builder, post_uri_builder, review_response_uri_builder, shop_uri_builder,
+    tag_uri_builder, try_parse_pubky_path, user_uri_builder, watchlist_uri_builder,
+    ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
 };
 
 // Our WASM module
