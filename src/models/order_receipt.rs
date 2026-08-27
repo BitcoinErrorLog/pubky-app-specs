@@ -49,7 +49,7 @@ impl PubkyAppOrderReceiptRole {
 /// facts the embedded edition-attestation JWS signs (see
 /// `drop_edition_attestation.rs`).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppOrderReceiptDrop {
     /// The drop's entity id (see `drop.rs`).
@@ -101,7 +101,7 @@ impl PubkyAppOrderReceiptDrop {
 /// incrementally instead of rewriting one growing document.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppMarketplaceOrderReceipt {
     /// Marketplace contract version, always `1`.
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_rejects_unknown_field() {
+    fn test_try_from_accepts_unknown_field() {
         let receipt = valid_receipt();
         let mut value = serde_json::to_value(&receipt).unwrap();
         value["surprise"] = serde_json::json!(true);
@@ -426,7 +426,7 @@ mod tests {
             json.as_bytes(),
             RECEIPT_ID
         )
-        .is_err());
+        .is_ok());
     }
 
     #[test]
@@ -620,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn test_drop_object_rejects_unknown_field() {
+    fn test_drop_object_accepts_unknown_field() {
         let mut receipt = valid_receipt();
         receipt.edition_attestation = Some("b".repeat(64));
         receipt.drop = Some(valid_drop_object());
@@ -631,7 +631,7 @@ mod tests {
             json.as_bytes(),
             RECEIPT_ID
         )
-        .is_err());
+        .is_ok());
     }
 
     #[test]

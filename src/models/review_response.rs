@@ -32,7 +32,7 @@ const MAX_RESPONSE_TEXT_LENGTH: usize = 5_000;
 /// An impostor's response fails that check without any signature machinery.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppReviewResponse {
     /// Marketplace contract version, always `1`.
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_rejects_unknown_field() {
+    fn test_try_from_accepts_unknown_field() {
         let review = subject_review();
         let response = valid_response(&review);
         let mut value = serde_json::to_value(&response).unwrap();
@@ -303,7 +303,7 @@ mod tests {
             json.as_bytes(),
             &review.review_id
         )
-        .is_err());
+        .is_ok());
     }
 
     #[test]

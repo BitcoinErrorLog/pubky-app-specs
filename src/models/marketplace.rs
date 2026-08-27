@@ -31,7 +31,7 @@ const Z_BASE_32_ALPHABET: &str = "ybndrfg8ejkmcpqxot1uwisza345h769";
 /// decimal places between minor and major units.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppMoney {
     pub amount_minor: i64,
@@ -92,7 +92,7 @@ impl PubkyAppMoney {
 /// Coarse public location attached to shops and listings.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppMarketplaceLocation {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
@@ -255,6 +255,13 @@ pub(crate) fn marketplace_media_prefix(owner_pubky: &str) -> String {
 }
 
 /// Validates the fields shared by every marketplace record.
+///
+/// Forward-compat contract (aligned with the social/v1 rule): marketplace
+/// record shapes are OPEN-WORLD — unknown members are tolerated on parse so
+/// records can grow additively without breaking older readers. The one
+/// deliberate exception is the JWS attestation header/claim structs, which
+/// stay closed-world as a verification-boundary choice: an attestation is an
+/// opaque signed string, not an evolving record.
 pub(crate) fn validate_base_record(
     schema_version: i64,
     record_type: &str,

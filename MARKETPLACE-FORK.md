@@ -41,8 +41,12 @@ marketplace sources are byte-for-byte the same on both branches):
   bindings (`createShop`, `createListing`, `createMarketplaceReview`), and
   docs (`SPEC.md`, `README.md`).
 
-All records use camelCase strict (deny-unknown-fields) serialization and keep
-every validation rule and test from the original branch.
+All records use camelCase OPEN-WORLD serialization: unknown members are
+tolerated on parse (aligned with the social/v1 forward-compat rule) so record
+shapes can grow additively. The JWS attestation header/claim structs are the
+one deliberate exception and stay strict — an attestation is an opaque signed
+string, not an evolving record. Every other validation rule and test from the
+original branch is kept.
 
 ## How to rebuild
 

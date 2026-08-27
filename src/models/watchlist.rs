@@ -31,7 +31,7 @@ pub const MAX_WATCHLIST_TOMBSTONES: usize = 500;
 /// offset-formatting differences between writers.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppWatchlistItem {
     /// z-base-32 pubky of the seller who owns the watched listing.
@@ -50,7 +50,7 @@ pub struct PubkyAppWatchlistItem {
 /// [`PubkyAppWatchlistItem`] for why entry timestamps are integers).
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppWatchlistTombstone {
     /// z-base-32 pubky of the seller who owns the unwatched listing.
@@ -87,7 +87,7 @@ pub struct PubkyAppWatchlistTombstone {
 /// `tombstones` but never both.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppWatchlist {
     /// Marketplace contract version, always `1`.
@@ -308,12 +308,12 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_rejects_unknown_field() {
+    fn test_try_from_accepts_unknown_field() {
         let watchlist = valid_watchlist();
         let mut value = serde_json::to_value(&watchlist).unwrap();
         value["surprise"] = serde_json::json!(true);
         let json = serde_json::to_string(&value).unwrap();
-        assert!(<PubkyAppWatchlist as Validatable>::try_from(json.as_bytes(), "").is_err());
+        assert!(<PubkyAppWatchlist as Validatable>::try_from(json.as_bytes(), "").is_ok());
     }
 
     #[test]

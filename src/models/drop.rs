@@ -75,7 +75,7 @@ pub enum PubkyAppDropStockDisplay {
 /// reference form exists here.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppMarketplaceDrop {
     /// Marketplace contract version, always `1`.
@@ -407,13 +407,13 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_rejects_unknown_field() {
+    fn test_try_from_accepts_unknown_field() {
         let drop = valid_drop();
         let mut value = serde_json::to_value(&drop).unwrap();
         value["surprise"] = serde_json::json!(true);
         let json = serde_json::to_string(&value).unwrap();
         assert!(
-            <PubkyAppMarketplaceDrop as Validatable>::try_from(json.as_bytes(), DROP_ID).is_err()
+            <PubkyAppMarketplaceDrop as Validatable>::try_from(json.as_bytes(), DROP_ID).is_ok()
         );
     }
 

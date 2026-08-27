@@ -114,7 +114,7 @@ pub enum PubkyAppListingMediaKind {
 /// A media attachment (image or video) referencing a marketplace media URI
 /// owned by the listing seller.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppListingMedia {
     pub id: String,
@@ -196,7 +196,7 @@ fn validate_mime_type(value: &str) -> Result<(), String> {
 
 /// A purchasable variant (SKU) of a listing.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppListingVariant {
     pub id: String,
@@ -535,7 +535,7 @@ impl PubkyAppShippingOption {
 
 /// Package facts required for physically fulfilled listings.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppListingPackage {
     pub weight_grams: i64,
@@ -568,7 +568,7 @@ impl PubkyAppListingPackage {
 
 /// The seller's return policy for a listing.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppReturnPolicy {
     pub accepts_returns: bool,
@@ -621,7 +621,7 @@ impl PubkyAppReturnPolicy {
 
 /// Locks policy configuration required for digitally fulfilled listings.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppDigitalLock {
     pub policy_uri: String,
@@ -729,7 +729,7 @@ fn validate_attribute_key(key: &str) -> Result<(), String> {
 /// match the record's `listingId` field.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppListing {
     /// Marketplace contract version, always `1`.
@@ -1398,13 +1398,13 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_rejects_unknown_field() {
+    fn test_try_from_accepts_unknown_field() {
         let listing = valid_listing();
         let id = listing.listing_id.clone();
         let mut value = serde_json::to_value(&listing).unwrap();
         value["surprise"] = serde_json::json!(true);
         let json = serde_json::to_string(&value).unwrap();
-        assert!(<PubkyAppListing as Validatable>::try_from(json.as_bytes(), &id).is_err());
+        assert!(<PubkyAppListing as Validatable>::try_from(json.as_bytes(), &id).is_ok());
     }
 
     #[test]

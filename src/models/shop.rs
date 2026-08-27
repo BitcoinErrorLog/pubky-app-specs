@@ -29,7 +29,7 @@ const MAX_TRANSACTION_SERVICE_LENGTH: usize = 300;
 /// URI: /pub/pubky.app/marketplace/v1/shop.json
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PubkyAppShop {
     /// Marketplace contract version, always `1`.
@@ -326,12 +326,12 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_rejects_unknown_field() {
+    fn test_try_from_accepts_unknown_field() {
         let shop = valid_shop();
         let mut value = serde_json::to_value(&shop).unwrap();
         value["surprise"] = serde_json::json!(true);
         let json = serde_json::to_string(&value).unwrap();
-        assert!(<PubkyAppShop as Validatable>::try_from(json.as_bytes(), "").is_err());
+        assert!(<PubkyAppShop as Validatable>::try_from(json.as_bytes(), "").is_ok());
     }
 
     #[test]
