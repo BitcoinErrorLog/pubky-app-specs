@@ -1,6 +1,6 @@
 # Marketplace Fork Build (0.6.2 base)
 
-This branch (`feat/marketplace-objects-0.6.x`) is a **fork build** maintained at
+This branch (`marketplace-4-build`) is a **fork build** maintained at
 [BitcoinErrorLog/pubky-app-specs](https://github.com/BitcoinErrorLog/pubky-app-specs).
 It is **not an upstream release** — the marketplace objects are pending upstream
 review. Do not confuse it with an official `pubky/pubky-app-specs` version.
@@ -17,7 +17,7 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.8` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.9` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
   Subsequent fork builds increment the final number (`-marketplace.5`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
@@ -43,21 +43,21 @@ marketplace sources are byte-for-byte the same on both branches):
 
 All records use camelCase OPEN-WORLD serialization: unknown members are
 tolerated on parse (aligned with the social/v1 forward-compat rule) so record
-shapes can grow additively. The JWS attestation header/claim structs are the
-one deliberate exception and stay strict — an attestation is an opaque signed
-string, not an evolving record. Every other validation rule and test from the
+shapes can grow additively. The six JWS attestation header/claim structs
+deliberately stay closed-world — an attestation is an opaque signed string,
+not an evolving record. Every other validation rule and test from the
 original branch is kept.
 
 ## How to rebuild
 
 ```bash
-git checkout feat/marketplace-objects-0.6.x
+git checkout marketplace-4-build
 cargo fmt --check
 cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.4.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.9.tgz
 ```
 
 Note: run the wasm/npm bundle from a worktree on the local disk — building
@@ -72,6 +72,20 @@ Point the app's dependency at it directly:
 ```json
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
+
+## Changes in `.9`
+
+Open-world record parsing (`b8e0c255`), aligned with the social/v1
+forward-compat rule:
+
+- Marketplace **records** (shop, listing, review, review response, drop,
+  watchlist, order receipt) tolerate unknown members on parse so shapes
+  can grow additively.
+- The **six** JWS attestation header/claim structs stay closed-world
+  (`deny_unknown_fields`): purchase attestation header + claims, order
+  receipt attestation header + claims, drop-edition attestation header +
+  claims. An attestation is an opaque signed string, not an evolving
+  record.
 
 ## Changes in `.8`
 
