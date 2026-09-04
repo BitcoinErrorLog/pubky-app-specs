@@ -43,7 +43,7 @@ pub use models::post::{
 pub use models::review_response::PubkyAppReviewResponse;
 pub use models::shop::PubkyAppShop;
 pub use models::tag::PubkyAppTag;
-pub use models::user::{PubkyAppUser, PubkyAppUserLink};
+pub use models::user::{PubkyAppUser, PubkyAppUserAutomation, PubkyAppUserLink};
 pub use models::PubkyAppObject;
 pub use types::PubkyId;
 #[doc(inline)]

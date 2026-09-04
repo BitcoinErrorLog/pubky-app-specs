@@ -66,7 +66,8 @@ Pubky.app models are designed for decentralized content sharing. The system uses
 | `bio`     | String   | Short biography.                        | Optional. Maximum length: 160 characters.                                                    |
 | `image`   | String   | URL to the user's profile image.        | Optional. Valid URL. Maximum length: 300 characters.                                         |
 | `links`   | Array    | List of associated links (title + URL). | Optional. Maximum of 5 links, each with title (100 chars max) and valid URL (300 chars max). |
-| `status`  | String   | User's current status.                  | Optional. Maximum length: 50 characters.                                                     |
+| `status`     | String     | User's current status.                  | Optional. Maximum length: 50 characters.                                                     |
+| `automation` | Object     | Machine-operator declaration for bots.  | Optional. If present, all of `operator` (pubky id), `capabilities` (≤16 kebab-case tokens, each ≤40 chars), `source` (URL), and `policy` (URL) are required. See `docs/proposals/bot-automation-field.md`. |
 
 **Validation Notes:**
 

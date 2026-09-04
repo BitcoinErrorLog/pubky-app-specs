@@ -2,7 +2,7 @@ use crate::{
     common::sanitize_url,
     limits::VALIDATION_LIMITS,
     traits::{HasPath, Validatable},
-    APP_PATH, PUBLIC_PATH,
+    PubkyId, APP_PATH, PUBLIC_PATH,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -31,6 +31,11 @@ pub struct PubkyAppUser {
     pub links: Option<Vec<PubkyAppUserLink>>,
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub status: Option<String>,
+    /// Optional machine-operator declaration. Absent on ordinary human profiles.
+    /// When present, all four inner fields are required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    pub automation: Option<PubkyAppUserAutomation>,
 }
 
 impl Default for PubkyAppUser {
@@ -41,6 +46,7 @@ impl Default for PubkyAppUser {
             image: None,
             links: None,
             status: None,
+            automation: None,
         }
         .sanitize()
     }
@@ -69,6 +75,10 @@ impl PubkyAppUser {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
     pub fn status(&self) -> Option<String> {
         self.status.clone()
+    }
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn automation(&self) -> Option<PubkyAppUserAutomation> {
+        self.automation.clone()
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = fromJson))]
@@ -110,6 +120,47 @@ impl PubkyAppUserLink {
     }
 }
 
+/// Machine-operator declaration on a profile. Present only when this pubky is a bot.
+/// All four fields are required when the block is present.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct PubkyAppUserAutomation {
+    /// Pubky of the human or organization that operates this bot.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    pub operator: String,
+    /// Lowercase kebab-case capability tokens (at most 16, each at most 40 characters).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    pub capabilities: Vec<String>,
+    /// URL of the bot's source (repository, package, or equivalent).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    pub source: String,
+    /// URL of the bot's public operating policy.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    pub policy: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl PubkyAppUserAutomation {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn operator(&self) -> String {
+        self.operator.clone()
+    }
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn capabilities(&self) -> Vec<String> {
+        self.capabilities.clone()
+    }
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn source(&self) -> String {
+        self.source.clone()
+    }
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn policy(&self) -> String {
+        self.policy.clone()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl PubkyAppUser {
     /// Creates a new `PubkyAppUser` instance and sanitizes it.
@@ -120,6 +171,7 @@ impl PubkyAppUser {
         image: Option<String>,
         links: Option<Vec<PubkyAppUserLink>>,
         status: Option<String>,
+        automation: Option<PubkyAppUserAutomation>,
     ) -> Self {
         Self {
             name,
@@ -127,6 +179,7 @@ impl PubkyAppUser {
             image,
             links,
             status,
+            automation,
         }
         .sanitize()
     }
@@ -165,12 +218,15 @@ impl Validatable for PubkyAppUser {
             .links
             .map(|links_vec| links_vec.into_iter().map(|link| link.sanitize()).collect());
 
+        let automation = self.automation.map(|block| block.sanitize());
+
         PubkyAppUser {
             name,
             bio,
             image,
             links,
             status,
+            automation,
         }
     }
 
@@ -221,6 +277,10 @@ impl Validatable for PubkyAppUser {
             }
         }
 
+        if let Some(automation) = &self.automation {
+            automation.validate(None)?;
+        }
+
         Ok(())
     }
 }
@@ -231,6 +291,110 @@ impl PubkyAppUserLink {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new(title: String, url: String) -> Self {
         Self { title, url }.sanitize()
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl PubkyAppUserAutomation {
+    /// Creates a new `PubkyAppUserAutomation` instance and sanitizes it.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
+    pub fn new(
+        operator: String,
+        capabilities: Vec<String>,
+        source: String,
+        policy: String,
+    ) -> Self {
+        Self {
+            operator,
+            capabilities,
+            source,
+            policy,
+        }
+        .sanitize()
+    }
+}
+
+fn is_lowercase_kebab_case(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return false;
+    }
+    let mut prev_hyphen = false;
+    for c in chars {
+        match c {
+            'a'..='z' | '0'..='9' => prev_hyphen = false,
+            '-' if !prev_hyphen => prev_hyphen = true,
+            _ => return false,
+        }
+    }
+    !prev_hyphen
+}
+
+impl Validatable for PubkyAppUserAutomation {
+    fn sanitize(self) -> Self {
+        PubkyAppUserAutomation {
+            operator: self.operator.trim().to_string(),
+            capabilities: self
+                .capabilities
+                .into_iter()
+                .map(|c| c.trim().to_string())
+                .collect(),
+            source: sanitize_url(&self.source),
+            policy: sanitize_url(&self.policy),
+        }
+    }
+
+    fn validate(&self, _id: Option<&str>) -> Result<(), String> {
+        if self.operator.is_empty() {
+            return Err("Validation Error: Automation operator cannot be empty".into());
+        }
+        PubkyId::try_from(self.operator.as_str())?;
+
+        if self.capabilities.len() > VALIDATION_LIMITS.user_automation_capabilities_max_count {
+            return Err("Validation Error: Too many automation capabilities".into());
+        }
+        for capability in &self.capabilities {
+            let length = capability.chars().count();
+            if length == 0 {
+                return Err("Validation Error: Automation capability cannot be empty".into());
+            }
+            if length > VALIDATION_LIMITS.user_automation_capability_max_length {
+                return Err(
+                    "Validation Error: Automation capability exceeds maximum length".into(),
+                );
+            }
+            if !is_lowercase_kebab_case(capability) {
+                return Err(
+                    "Validation Error: Automation capability must be lowercase kebab-case".into(),
+                );
+            }
+        }
+
+        if self.source.trim().is_empty() {
+            return Err("Validation Error: Automation source URL cannot be empty".into());
+        }
+        if self.source.chars().count() > VALIDATION_LIMITS.user_automation_url_max_length {
+            return Err("Validation Error: Automation source URL exceeds maximum length".into());
+        }
+        Url::parse(&self.source)
+            .map_err(|_| "Validation Error: Invalid automation source URL format".to_string())?;
+
+        if self.policy.trim().is_empty() {
+            return Err("Validation Error: Automation policy URL cannot be empty".into());
+        }
+        if self.policy.chars().count() > VALIDATION_LIMITS.user_automation_url_max_length {
+            return Err("Validation Error: Automation policy URL exceeds maximum length".into());
+        }
+        Url::parse(&self.policy)
+            .map_err(|_| "Validation Error: Invalid automation policy URL format".to_string())?;
+
+        Ok(())
     }
 }
 
@@ -292,6 +456,7 @@ mod tests {
                 },
             ]),
             Some("Exploring the decentralized web.".to_string()),
+            None,
         );
 
         assert_eq!(user.name, "Alice");
@@ -328,6 +493,7 @@ mod tests {
                 },
             ]),
             Some("  Exploring the decentralized web.  ".to_string()),
+            None,
         );
 
         assert_eq!(user.name, "Alice");
@@ -355,6 +521,7 @@ mod tests {
             Some("https://example.com/image.png".to_string()),
             None,
             Some("Exploring the decentralized web.".to_string()),
+            None,
         );
 
         let result = user.validate(None);
@@ -370,6 +537,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         let result = user.validate(None);
@@ -381,7 +549,7 @@ mod tests {
 
         // Test name too long - sanitization should NOT truncate
         let long_name = "a".repeat(VALIDATION_LIMITS.user_name_max_length + 1);
-        let user = PubkyAppUser::new(long_name.clone(), None, None, None, None);
+        let user = PubkyAppUser::new(long_name.clone(), None, None, None, None, None);
 
         // Sanitization should preserve full length
         assert_eq!(user.name.len(), VALIDATION_LIMITS.user_name_max_length + 1);
@@ -478,6 +646,7 @@ mod tests {
                 url: "  invalid_link_url  ".to_string(),
             }]),
             status: None,
+            automation: None,
         };
 
         let sanitized = user.sanitize();
@@ -511,6 +680,7 @@ mod tests {
             Some(long_image.clone()),
             None,
             Some(long_status.clone()),
+            None,
         );
 
         // Sanitization should preserve full length (only trim whitespace)
@@ -530,6 +700,7 @@ mod tests {
                     None,
                     None,
                     None,
+                    None,
                 ),
                 "bio",
             ),
@@ -540,6 +711,7 @@ mod tests {
                     None,
                     None,
                     Some("a".repeat(VALIDATION_LIMITS.user_status_max_length + 1)),
+                    None,
                 ),
                 "status",
             ),
@@ -551,6 +723,7 @@ mod tests {
                         "https://example.com/{}.png",
                         "a".repeat(VALIDATION_LIMITS.user_image_url_max_length - 20)
                     )),
+                    None,
                     None,
                     None,
                 ),
@@ -579,7 +752,7 @@ mod tests {
             });
         }
 
-        let user = PubkyAppUser::new("Alice".to_string(), None, None, Some(links), None);
+        let user = PubkyAppUser::new("Alice".to_string(), None, None, Some(links), None, None);
 
         // Sanitization should preserve all links (not truncate)
         assert_eq!(
@@ -654,7 +827,7 @@ mod tests {
         // Emoji name: 3 emoji characters (each is 1 char but multiple bytes)
         // This verifies .chars().count() is used instead of .len()
         let emoji_name = "Hi👋🏻Bob"; // 7 characters: H, i, 👋, 🏻, B, o, b
-        let user = PubkyAppUser::new(emoji_name.to_string(), None, None, None, None);
+        let user = PubkyAppUser::new(emoji_name.to_string(), None, None, None, None, None);
         assert!(
             user.validate(None).is_ok(),
             "Should accept emoji in name (counts chars, not bytes)"
@@ -665,6 +838,7 @@ mod tests {
         let user_with_bio = PubkyAppUser::new(
             "Alice".to_string(),
             Some(unicode_bio.to_string()),
+            None,
             None,
             None,
             None,
@@ -681,7 +855,7 @@ mod tests {
             max_emoji_name.chars().count(),
             VALIDATION_LIMITS.user_name_max_length
         );
-        let user_max_emoji = PubkyAppUser::new(max_emoji_name, None, None, None, None);
+        let user_max_emoji = PubkyAppUser::new(max_emoji_name, None, None, None, None, None);
         assert!(
             user_max_emoji.validate(None).is_ok(),
             "Should accept {} emoji characters as name",
@@ -696,6 +870,7 @@ mod tests {
             "Alice".to_string(),
             None,
             Some("".to_string()), // Empty string for image
+            None,
             None,
             None,
         );
@@ -721,6 +896,7 @@ mod tests {
             None, // No image provided
             None,
             None,
+            None,
         );
 
         // Image should be None
@@ -729,5 +905,147 @@ mod tests {
         // Validation should pass - image is optional
         let result = user.validate(None);
         assert!(result.is_ok());
+    }
+
+    const OPERATOR: &str = "operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo";
+
+    fn jeb_like_automation() -> PubkyAppUserAutomation {
+        PubkyAppUserAutomation::new(
+            OPERATOR.to_string(),
+            vec!["post".to_string(), "tag".to_string(), "follow".to_string()],
+            "https://github.com/synonymdev/jeb".to_string(),
+            "https://pubky.app/post/9o6xrx8wgqu48dmb47uep6w3dgbwdnf5jgw83gbeuxg9yi7x444y/policy"
+                .to_string(),
+        )
+    }
+
+    #[test]
+    fn test_valid_bot_profile() {
+        let user = PubkyAppUser::new(
+            "Jeb".to_string(),
+            Some("Synonym bot".to_string()),
+            None,
+            None,
+            None,
+            Some(jeb_like_automation()),
+        );
+
+        assert!(user.validate(None).is_ok());
+        let automation = user.automation.as_ref().unwrap();
+        assert_eq!(automation.operator, OPERATOR);
+        assert_eq!(automation.capabilities.len(), 3);
+        assert!(user.automation.is_some());
+    }
+
+    #[test]
+    fn test_plain_profile_without_automation_still_valid() {
+        let user = PubkyAppUser::new("Alice".to_string(), None, None, None, None, None);
+        assert!(user.automation.is_none());
+        assert!(user.validate(None).is_ok());
+
+        let blob = br#"{"name":"Alice"}"#;
+        let parsed = <PubkyAppUser as Validatable>::try_from(blob, "").unwrap();
+        assert!(parsed.automation.is_none());
+        assert_eq!(parsed.name, "Alice");
+    }
+
+    #[test]
+    fn test_automation_missing_operator_rejected() {
+        let json = r#"
+        {
+            "name": "Jeb",
+            "automation": {
+                "capabilities": ["post"],
+                "source": "https://github.com/synonymdev/jeb",
+                "policy": "https://example.com/policy"
+            }
+        }
+        "#;
+        let result = <PubkyAppUser as Validatable>::try_from(json.as_bytes(), "");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("operator") || err.contains("missing field"),
+            "expected missing operator to surface, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_automation_non_url_source_rejected() {
+        let mut block = jeb_like_automation();
+        block.source = "not-a-url".to_string();
+        let user = PubkyAppUser::new("Jeb".to_string(), None, None, None, None, Some(block));
+        let result = user.validate(None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid automation source URL format"));
+    }
+
+    #[test]
+    fn test_automation_over_limit_capabilities_rejected() {
+        let too_many: Vec<String> = (0..VALIDATION_LIMITS.user_automation_capabilities_max_count
+            + 1)
+            .map(|i| format!("cap-{i}"))
+            .collect();
+        let block = PubkyAppUserAutomation::new(
+            OPERATOR.to_string(),
+            too_many,
+            "https://github.com/synonymdev/jeb".to_string(),
+            "https://example.com/policy".to_string(),
+        );
+        assert_eq!(
+            block.capabilities.len(),
+            VALIDATION_LIMITS.user_automation_capabilities_max_count + 1
+        );
+        let user = PubkyAppUser::new("Jeb".to_string(), None, None, None, None, Some(block));
+        let result = user.validate(None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Too many automation capabilities"));
+    }
+
+    #[test]
+    fn test_automation_capability_too_long_rejected() {
+        let long = "a".repeat(VALIDATION_LIMITS.user_automation_capability_max_length + 1);
+        let block = PubkyAppUserAutomation::new(
+            OPERATOR.to_string(),
+            vec![long],
+            "https://github.com/synonymdev/jeb".to_string(),
+            "https://example.com/policy".to_string(),
+        );
+        let user = PubkyAppUser::new("Jeb".to_string(), None, None, None, None, Some(block));
+        let result = user.validate(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("exceeds maximum length"));
+    }
+
+    #[test]
+    fn test_automation_capability_not_kebab_rejected() {
+        let block = PubkyAppUserAutomation::new(
+            OPERATOR.to_string(),
+            vec!["PostStream".to_string()],
+            "https://github.com/synonymdev/jeb".to_string(),
+            "https://example.com/policy".to_string(),
+        );
+        let user = PubkyAppUser::new("Jeb".to_string(), None, None, None, None, Some(block));
+        let result = user.validate(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("lowercase kebab-case"));
+    }
+
+    #[test]
+    fn test_automation_invalid_operator_rejected() {
+        let block = PubkyAppUserAutomation::new(
+            "not-a-pubky".to_string(),
+            vec!["post".to_string()],
+            "https://github.com/synonymdev/jeb".to_string(),
+            "https://example.com/policy".to_string(),
+        );
+        let user = PubkyAppUser::new("Jeb".to_string(), None, None, None, None, Some(block));
+        let result = user.validate(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Validation Error"));
     }
 }

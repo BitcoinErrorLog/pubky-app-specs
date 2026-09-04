@@ -47,6 +47,12 @@ pub struct ValidationLimits {
     pub user_link_url_max_length: usize,
     /// Maximum status length in characters.
     pub user_status_max_length: usize,
+    /// Maximum number of automation capability tokens.
+    pub user_automation_capabilities_max_count: usize,
+    /// Maximum length of a single automation capability token.
+    pub user_automation_capability_max_length: usize,
+    /// Maximum length of automation source and policy URLs.
+    pub user_automation_url_max_length: usize,
     /// Maximum character count for short posts.
     pub post_short_content_max_length: usize,
     /// Maximum character count for long posts.
@@ -98,6 +104,9 @@ pub const VALIDATION_LIMITS: ValidationLimits = ValidationLimits {
     user_link_title_max_length: 100,
     user_link_url_max_length: 300,
     user_status_max_length: 50,
+    user_automation_capabilities_max_count: 16,
+    user_automation_capability_max_length: 40,
+    user_automation_url_max_length: 300,
     post_short_content_max_length: 2000,
     post_long_content_max_length: 50_000,
     post_attachments_max_count: 10,

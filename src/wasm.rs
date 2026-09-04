@@ -177,6 +177,7 @@ impl PubkySpecsBuilder {
         image: Option<String>,
         links: JsValue, // a JS array of {title, url} or null
         status: Option<String>,
+        automation: JsValue, // a JS object {operator, capabilities, source, policy} or null
     ) -> Result<UserResult, String> {
         // 1) Convert JS 'links' -> Option<Vec<PubkyAppUserLink>>
         let links_vec: Option<Vec<PubkyAppUserLink>> = if links.is_null() || links.is_undefined() {
@@ -185,8 +186,15 @@ impl PubkySpecsBuilder {
             from_value(links).map_err(|e| e.to_string())?
         };
 
+        let automation_block: Option<PubkyAppUserAutomation> =
+            if automation.is_null() || automation.is_undefined() {
+                None
+            } else {
+                from_value(automation).map_err(|e| e.to_string())?
+            };
+
         // 2) Build user domain object
-        let user = PubkyAppUser::new(name, bio, image, links_vec, status);
+        let user = PubkyAppUser::new(name, bio, image, links_vec, status, automation_block);
         user.validate(None)?; // No ID-based validation for user
 
         // 3) Create the path and meta

@@ -23,7 +23,8 @@ describe("PubkySpecs Example Objects Tests", () => {
         "Software Developer", 
         null, 
         null, 
-        "active"
+        "active",
+        null
       );
 
       // Test meta properties
