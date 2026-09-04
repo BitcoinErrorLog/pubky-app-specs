@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
         None,
         None,
         None,
+        None,
     );
 
     println!("User profile created: {:?}", user_profile);

@@ -32,7 +32,7 @@ use pubky_app_specs::{
 use serde_json::to_vec;
 
 // Create a user profile
-let user = PubkyAppUser::new("Alice".into(), None, None, None, None);
+let user = PubkyAppUser::new("Alice".into(), None, None, None, None, None);
 let path = PubkyAppUser::create_path(); // /pub/pubky.app/profile.json
 let json = to_vec(&user).unwrap();
 
