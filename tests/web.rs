@@ -75,6 +75,7 @@ fn test_create_user_rust_api() {
             Some("https://example.com/image.png".to_string()),
             JsValue::from(links),
             Some("Exploring the decentralized web.".to_string()),
+            JsValue::NULL,
         )
         .expect("create_user should not fail");
 
@@ -129,6 +130,7 @@ fn test_create_user_with_minimal_data() {
             None,
             JsValue::NULL, // No links
             None,
+            JsValue::NULL, // No automation
         )
         .expect("create_user should not fail");
 

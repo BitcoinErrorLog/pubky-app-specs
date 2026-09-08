@@ -1760,7 +1760,7 @@ dependencies = [
 
 [[package]]
 name = "pubky-app-specs"
-version = "0.7.0"
+version = "0.7.0-pubchi.1"
 dependencies = [
  "anyhow",
  "base32",
