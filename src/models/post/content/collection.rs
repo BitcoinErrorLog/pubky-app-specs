@@ -1,4 +1,7 @@
-use crate::{common::validate_crockford_id, limits::VALIDATION_LIMITS, types::PubkyId};
+use crate::{
+    common::validate_crockford_id, limits::VALIDATION_LIMITS,
+    models::marketplace::validate_entity_id, types::PubkyId,
+};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use url::Url;
@@ -184,9 +187,9 @@ fn validate_collection_envelope(envelope: &PubkyAppCollectionContent) -> Result<
 /// Deliberately avoids `Url::parse`: it silently strips userinfo and collapses
 /// `..` path segments, smuggling non-canonical strings past a parse-and-recheck
 /// approach. Splitting the raw string and delegating to `PubkyId::try_from`
-/// (52-char z-base-32) and `validate_crockford_id` (13-char Crockford — post
-/// IDs and listing timestamp IDs share the same encoding) enforces the
-/// canonical form structurally.
+/// (52-char z-base-32) and the appropriate item-id validator enforces the
+/// canonical form structurally: post IDs use 13-character Crockford encoding,
+/// while marketplace listing IDs use the path-safe commerce entity-id alphabet.
 fn validate_collection_item_uri(uri: &str) -> Result<(), String> {
     const PREFIX: &str = "pubky://";
     const POST_MIDDLE: &str = "/pub/pubky.app/posts/";
@@ -194,17 +197,21 @@ fn validate_collection_item_uri(uri: &str) -> Result<(), String> {
     let rest = uri
         .strip_prefix(PREFIX)
         .ok_or_else(|| format!("must start with pubky://: {uri}"))?;
-    let (host, item_id, id_kind) = if let Some((host, post_id)) = rest.split_once(POST_MIDDLE) {
-        (host, post_id, "post id")
+    let (host, item_id, is_post) = if let Some((host, post_id)) = rest.split_once(POST_MIDDLE) {
+        (host, post_id, true)
     } else if let Some((host, listing_id)) = rest.split_once(LISTING_MIDDLE) {
-        (host, listing_id, "listing id")
+        (host, listing_id, false)
     } else {
         return Err(format!(
             "must be a canonical post or marketplace listing URI: {uri}"
         ));
     };
     PubkyId::try_from(host).map_err(|e| format!("invalid pubky-id in host: {e}"))?;
-    validate_crockford_id(item_id).map_err(|e| format!("invalid {id_kind}: {e}"))?;
+    if is_post {
+        validate_crockford_id(item_id).map_err(|e| format!("invalid post id: {e}"))?;
+    } else {
+        validate_entity_id(item_id, "listing id")?;
+    }
     Ok(())
 }
 
@@ -694,6 +701,54 @@ mod tests {
     }
 
     #[test]
+    fn test_collection_post_accepts_entity_id_listing_item_uri() {
+        let uri = format!(
+            "pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/1061cf08aaad4c8f99d996f3c2c092ba"
+        );
+        let post = make_collection_post("Entity listing", None, Some(vec![uri]));
+        let id = post.create_id();
+        assert!(post.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_collection_post_accepts_crockford_listing_item_uri() {
+        let uri =
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/0034A0X7NJ52A");
+        let post = make_collection_post("Crockford listing", None, Some(vec![uri]));
+        let id = post.create_id();
+        assert!(post.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_collection_post_rejects_invalid_entity_id_listing_item_uris() {
+        for (label, listing_id) in [
+            ("slash", "listing/id".to_string()),
+            ("dot", "listing.id".to_string()),
+            ("empty", String::new()),
+            ("too long", "a".repeat(129)),
+        ] {
+            let uri = format!(
+                "pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/{listing_id}"
+            );
+            let post = make_collection_post(label, None, Some(vec![uri]));
+            let id = post.create_id();
+            assert!(
+                post.validate(Some(&id)).is_err(),
+                "{label} listing id must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_collection_post_rejects_entity_id_post_item_uri() {
+        let uri =
+            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/posts/1061cf08aaad4c8f99d996f3c2c092ba");
+        let post = make_collection_post("Entity post", None, Some(vec![uri]));
+        let id = post.create_id();
+        assert!(post.validate(Some(&id)).is_err());
+    }
+
+    #[test]
     fn test_collection_post_accepts_mixed_post_and_listing_items() {
         let items = vec![
             format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/posts/0034A0X7NJ52A"),
@@ -706,13 +761,12 @@ mod tests {
 
     #[test]
     fn test_collection_post_rejects_listing_uri_with_invalid_listing_id() {
-        // 13 chars but hyphens aren't in the Crockford alphabet.
-        let uri =
-            format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/abc-def-ghi-j");
+        // Dots are not path-safe entity-id characters.
+        let uri = format!("pubky://{TEST_PUBKY_ID}/pub/pubky.app/marketplace/v1/listings/abc.def");
         let post = make_collection_post("X", None, Some(vec![uri]));
         let id = post.create_id();
         let err = post.validate(Some(&id)).unwrap_err();
-        assert!(err.contains("invalid listing id"), "got: {err}");
+        assert!(err.contains("listing id"), "got: {err}");
     }
 
     #[test]
@@ -723,7 +777,7 @@ mod tests {
         let post = make_collection_post("X", None, Some(vec![uri]));
         let id = post.create_id();
         let err = post.validate(Some(&id)).unwrap_err();
-        assert!(err.contains("invalid listing id"), "got: {err}");
+        assert!(err.contains("listing id"), "got: {err}");
     }
 
     #[test]
