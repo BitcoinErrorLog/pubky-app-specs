@@ -17,7 +17,7 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.9` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.10` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
   Subsequent fork builds increment the final number (`-marketplace.5`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
@@ -57,7 +57,7 @@ cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.9.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.10.tgz
 ```
 
 Note: run the wasm/npm bundle from a worktree on the local disk — building
@@ -72,6 +72,13 @@ Point the app's dependency at it directly:
 ```json
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
+
+## Changes in `.10`
+
+Collection item validation now accepts marketplace listing entity IDs, including
+32-character UUID-like IDs, while keeping post item IDs on the 13-character
+Crockford validator. Listing IDs remain bounded to the path-safe entity-id
+alphabet and length limits.
 
 ## Changes in `.9`
 
