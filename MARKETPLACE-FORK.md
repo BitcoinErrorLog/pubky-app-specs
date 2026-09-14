@@ -73,6 +73,10 @@ Point the app's dependency at it directly:
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
 
+## Changes in `.11`
+
+Order receipt attestations now accept and verify the captured `pubky-order-receipt+v2` format with separate settlement and merchandise money objects, while preserving v1 parsing and verification. The wasm/JS parse and verify functions return snake_case claim keys for both versions.
+
 ## Changes in `.10`
 
 Collection item validation now accepts marketplace listing entity IDs, including

@@ -45,8 +45,9 @@ pub use models::order_receipt::{
     PubkyAppMarketplaceOrderReceipt, PubkyAppOrderReceiptDrop, PubkyAppOrderReceiptRole,
 };
 pub use models::order_receipt_attestation::{
-    PubkyAppOrderReceiptAttestation, PubkyAppOrderReceiptAttestationClaims,
-    ORDER_RECEIPT_ATTESTATION_TYP, ORDER_RECEIPT_ATTESTATION_VERSION,
+    PubkyAppMoneyObject, PubkyAppOrderReceiptAttestation, PubkyAppOrderReceiptAttestationClaims,
+    PubkyAppOrderReceiptAttestationV2Claims, ORDER_RECEIPT_ATTESTATION_TYP,
+    ORDER_RECEIPT_ATTESTATION_VERSION,
 };
 pub use models::post::{
     PubkyAppCollectionContent, PubkyAppCollectionLayout, PubkyAppPost, PubkyAppPostEmbed,

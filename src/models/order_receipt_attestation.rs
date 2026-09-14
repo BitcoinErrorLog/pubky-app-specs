@@ -50,8 +50,10 @@ use utoipa::ToSchema;
 
 /// The exact JOSE `typ` value of a v1 order receipt attestation.
 pub const ORDER_RECEIPT_ATTESTATION_TYP: &str = "pubky-order-receipt+v1";
+pub const ORDER_RECEIPT_ATTESTATION_V2_TYP: &str = "pubky-order-receipt+v2";
 /// The only claim-set version this module accepts.
 pub const ORDER_RECEIPT_ATTESTATION_VERSION: i64 = 1;
+pub const ORDER_RECEIPT_ATTESTATION_V2_VERSION: i64 = 2;
 
 // The spec field's own bounds (mirrors order_receipt.rs).
 const MIN_ATTESTATION_LENGTH: usize = 32;
@@ -113,12 +115,38 @@ pub struct PubkyAppOrderReceiptAttestationClaims {
     pub iat: i64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct PubkyAppOrderReceiptAttestationV2Claims {
+    pub v: i64,
+    pub iss: String,
+    pub buyer: String,
+    pub seller: String,
+    pub order: String,
+    pub receipt: String,
+    pub settlement_total: PubkyAppMoneyObject,
+    pub merchandise_total: PubkyAppMoneyObject,
+    pub paid_at: String,
+    pub iat: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct PubkyAppMoneyObject {
+    pub amount_minor: u64,
+    pub currency: String,
+    pub exponent: u8,
+}
+
 /// A parsed (structurally valid) order receipt attestation. Construction via
 /// [`Self::parse`] guarantees the header and claims are well-formed; it does
 /// NOT imply the signature was checked — call [`Self::verify_signature`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubkyAppOrderReceiptAttestation {
     pub claims: PubkyAppOrderReceiptAttestationClaims,
+    pub v2_claims: Option<PubkyAppOrderReceiptAttestationV2Claims>,
     /// The exact bytes the signature covers: `header_b64 || '.' || payload_b64`.
     signing_input: String,
     signature: [u8; 64],
@@ -166,17 +194,50 @@ impl PubkyAppOrderReceiptAttestation {
         if header.alg != "EdDSA" {
             return Err("Attestation Error: alg must be EdDSA".into());
         }
-        if header.typ != ORDER_RECEIPT_ATTESTATION_TYP {
+        if header.typ != ORDER_RECEIPT_ATTESTATION_TYP
+            && header.typ != ORDER_RECEIPT_ATTESTATION_V2_TYP
+        {
             return Err(format!(
-                "Attestation Error: typ must be {ORDER_RECEIPT_ATTESTATION_TYP}"
+                "Attestation Error: typ must be {ORDER_RECEIPT_ATTESTATION_TYP} or {ORDER_RECEIPT_ATTESTATION_V2_TYP}"
             ));
         }
 
         let payload_bytes = base64url_decode(payload_b64)
             .ok_or("Attestation Error: payload is not valid base64url")?;
-        let claims: PubkyAppOrderReceiptAttestationClaims = serde_json::from_slice(&payload_bytes)
-            .map_err(|e| format!("Attestation Error: invalid claims: {e}"))?;
-        validate_claims(&claims)?;
+        let (claims, v2_claims) = if header.typ == ORDER_RECEIPT_ATTESTATION_TYP {
+            let claims: PubkyAppOrderReceiptAttestationClaims =
+                serde_json::from_slice(&payload_bytes)
+                    .map_err(|e| format!("Attestation Error: invalid claims: {e}"))?;
+            validate_claims(&claims)?;
+            if claims.v != ORDER_RECEIPT_ATTESTATION_VERSION {
+                return Err("Attestation Error: typ/v mismatch".into());
+            }
+            (claims, None)
+        } else {
+            let claims: PubkyAppOrderReceiptAttestationV2Claims =
+                serde_json::from_slice(&payload_bytes)
+                    .map_err(|e| format!("Attestation Error: invalid v2 claims: {e}"))?;
+            validate_v2_claims(&claims)?;
+            if claims.v != ORDER_RECEIPT_ATTESTATION_V2_VERSION {
+                return Err("Attestation Error: typ/v mismatch".into());
+            }
+            (
+                PubkyAppOrderReceiptAttestationClaims {
+                    v: 1,
+                    iss: claims.iss.clone(),
+                    buyer: claims.buyer.clone(),
+                    seller: claims.seller.clone(),
+                    order: claims.order.clone(),
+                    receipt: claims.receipt.clone(),
+                    total_minor: 0,
+                    currency: String::new(),
+                    exponent: 0,
+                    paid_at: claims.paid_at.clone(),
+                    iat: claims.iat,
+                },
+                Some(claims),
+            )
+        };
 
         let signature_bytes = base64url_decode(signature_b64)
             .ok_or("Attestation Error: signature is not valid base64url")?;
@@ -186,6 +247,7 @@ impl PubkyAppOrderReceiptAttestation {
 
         Ok(Self {
             claims,
+            v2_claims,
             signing_input: format!("{header_b64}.{payload_b64}"),
             signature,
         })
@@ -195,7 +257,11 @@ impl PubkyAppOrderReceiptAttestation {
     /// `iss` claim (a pubky is the z-base-32 encoding of the verification
     /// key — no key server or issuer round-trip is involved).
     pub fn verify_signature(&self) -> Result<(), String> {
-        let key_bytes = zbase32_decode_pubky(&self.claims.iss)
+        let issuer = self
+            .v2_claims
+            .as_ref()
+            .map_or(&self.claims.iss, |claims| &claims.iss);
+        let key_bytes = zbase32_decode_pubky(issuer)
             .ok_or("Attestation Error: iss does not decode as a pubky")?;
         let verifying_key = VerifyingKey::from_bytes(&key_bytes)
             .map_err(|_| "Attestation Error: iss is not a valid Ed25519 key".to_string())?;
@@ -211,6 +277,28 @@ impl PubkyAppOrderReceiptAttestation {
     /// `paid_at` equals the record's `paidAt`. Any mismatch means the
     /// attestation does not cover the receipt.
     pub fn verify_binding(&self, record: &PubkyAppMarketplaceOrderReceipt) -> Result<(), String> {
+        if let Some(claims) = &self.v2_claims {
+            if claims.buyer != record.buyer_pubky
+                || claims.seller != record.seller_pubky
+                || claims.order != record.order_id
+                || claims.receipt != record.receipt_id
+            {
+                return Err(
+                    "Attestation Error: v2 party or id binding does not match the receipt".into(),
+                );
+            }
+            if claims.merchandise_total.amount_minor != record.total.amount_minor as u64
+                || claims.merchandise_total.currency != record.total.currency
+                || claims.merchandise_total.exponent != record.total.exponent as u8
+                || claims.paid_at != record.paid_at
+            {
+                return Err(
+                    "Attestation Error: v2 merchandise total or paid_at does not match the receipt"
+                        .into(),
+                );
+            }
+            return Ok(());
+        }
         if self.claims.buyer != record.buyer_pubky {
             return Err("Attestation Error: buyer does not match the receipt buyer".into());
         }
@@ -283,6 +371,42 @@ fn validate_claims(claims: &PubkyAppOrderReceiptAttestationClaims) -> Result<(),
 
     // iat is the epoch seconds of the same instant, never the signing wall
     // clock: issuance is deterministic per receipt.
+    if claims.iat != paid_at_millis.div_euclid(1_000) {
+        return Err(
+            "Attestation Error: iat must be the epoch seconds of the paid_at instant".into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_v2_claims(claims: &PubkyAppOrderReceiptAttestationV2Claims) -> Result<(), String> {
+    if claims.v != ORDER_RECEIPT_ATTESTATION_V2_VERSION {
+        return Err("Attestation Error: v must be 2".into());
+    }
+    validate_pubky(&claims.iss, "iss").map_err(attestation_error)?;
+    validate_pubky(&claims.buyer, "buyer").map_err(attestation_error)?;
+    validate_pubky(&claims.seller, "seller").map_err(attestation_error)?;
+    validate_uuid(&claims.order, "order").map_err(attestation_error)?;
+    validate_uuid(&claims.receipt, "receipt").map_err(attestation_error)?;
+    for (name, money) in [
+        ("settlement_total", &claims.settlement_total),
+        ("merchandise_total", &claims.merchandise_total),
+    ] {
+        if money.currency.is_empty() || money.currency.chars().count() > 12 {
+            return Err(format!(
+                "Attestation Error: {name}.currency must be 1-12 characters"
+            ));
+        }
+        if money.exponent > 18 {
+            return Err(format!(
+                "Attestation Error: {name}.exponent must be at most 18"
+            ));
+        }
+    }
+    let paid_at_millis = parse_rfc3339_millis(&claims.paid_at)
+        .ok()
+        .filter(|_| claims.paid_at.ends_with('Z'))
+        .ok_or("Attestation Error: paid_at must be an ISO-8601 UTC datetime (Z offset)")?;
     if claims.iat != paid_at_millis.div_euclid(1_000) {
         return Err(
             "Attestation Error: iat must be the epoch seconds of the paid_at instant".into(),
@@ -611,5 +735,47 @@ mod tests {
             (MIN_ATTESTATION_LENGTH..=MAX_ATTESTATION_LENGTH).contains(&length),
             "JWS length {length} outside the spec field bounds"
         );
+    }
+    #[test]
+    fn test_captured_v1_and_v2_samples_verify_signatures() {
+        // Captured from marketplace-service fcd38b2 contracts/samples.
+        for fixture in [
+            include_str!("../test_fixtures/order-receipt-attestation-v1.json"),
+            include_str!("../test_fixtures/order-receipt-attestation-v2-bitcoin.json"),
+            include_str!("../test_fixtures/order-receipt-attestation-v2-same-currency.json"),
+        ] {
+            let sample: serde_json::Value = serde_json::from_str(fixture).unwrap();
+            let jws = sample["receipt_attestation"]["jws"].as_str().unwrap();
+            let attestation = PubkyAppOrderReceiptAttestation::parse(jws).unwrap();
+            attestation.verify_signature().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_v2_money_bounds_and_typ_mismatch_rejected() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../test_fixtures/order-receipt-attestation-v2-same-currency.json"
+        ))
+        .unwrap();
+        let parts: Vec<&str> = fixture["receipt_attestation"]["jws"]
+            .as_str()
+            .unwrap()
+            .split('.')
+            .collect();
+        let mut claims: serde_json::Value =
+            serde_json::from_slice(&base64url_decode(parts[1]).unwrap()).unwrap();
+        claims["settlement_total"]["exponent"] = serde_json::json!(19);
+        let payload = base64url_encode(serde_json::to_vec(&claims).unwrap().as_slice());
+        assert!(PubkyAppOrderReceiptAttestation::parse(&format!(
+            "{}.{}.{}",
+            parts[0], payload, parts[2]
+        ))
+        .is_err());
+        let header = base64url_encode(br#"{"alg":"EdDSA","typ":"pubky-order-receipt+v1"}"#);
+        assert!(PubkyAppOrderReceiptAttestation::parse(&format!(
+            "{}.{}.{}",
+            header, parts[1], parts[2]
+        ))
+        .is_err());
     }
 }
