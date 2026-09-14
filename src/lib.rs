@@ -47,6 +47,7 @@ pub use models::order_receipt::{
 pub use models::order_receipt_attestation::{
     PubkyAppMoneyObject, PubkyAppOrderReceiptAttestation, PubkyAppOrderReceiptAttestationClaims,
     PubkyAppOrderReceiptAttestationV2Claims, ORDER_RECEIPT_ATTESTATION_TYP,
+    ORDER_RECEIPT_ATTESTATION_V2_TYP, ORDER_RECEIPT_ATTESTATION_V2_VERSION,
     ORDER_RECEIPT_ATTESTATION_VERSION,
 };
 pub use models::post::{

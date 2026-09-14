@@ -1,5 +1,6 @@
 import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, getValidMimeTypes } from "./index.js";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import assert from "assert";
 
@@ -638,6 +639,65 @@ describe("PubkySpecs Example Objects Tests", () => {
       assert.throws(() => verifyOrderReceiptAttestation(receiptBody()));
       // Structurally invalid compact form.
       assert.throws(() => parseOrderReceiptAttestation("not.a.jws"));
+    });
+
+    it("should parse the captured v2 fixture with the unchanged snake_case return shape", () => {
+      const fixture = JSON.parse(readFileSync(
+        "../src/test_fixtures/order-receipt-attestation-v2-same-currency.json",
+        "utf8"
+      ));
+      const parsed = parseOrderReceiptAttestation(fixture.receipt_attestation.jws);
+      assert.deepStrictEqual(Object.keys(parsed).sort(), [
+        "buyer", "iat", "iss", "merchandise_total", "order",
+        "paid_at", "receipt", "seller", "settlement_total", "v",
+      ]);
+      assert.strictEqual(parsed.v, 2);
+      assert.strictEqual(parsed.merchandise_total.amount_minor, 13700);
+      assert.strictEqual(parsed.settlement_total.currency, "USD");
+    });
+
+    it("should reject a v2 fixture with the wrong typ or a tampered payload", () => {
+      const fixture = JSON.parse(readFileSync(
+        "../src/test_fixtures/order-receipt-attestation-v2-same-currency.json",
+        "utf8"
+      ));
+      const [header, payload, signature] = fixture.receipt_attestation.jws.split(".");
+      const wrongTyp = Buffer.from(
+        JSON.stringify({ alg: "EdDSA", typ: "pubky-order-receipt+v1" })
+      ).toString("base64url");
+      assert.throws(() => parseOrderReceiptAttestation(
+        `${wrongTyp}.${payload}.${signature}`
+      ));
+      const tamperedClaims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+      tamperedClaims.merchandise_total.amount_minor += 1;
+      const tamperedPayload = Buffer.from(JSON.stringify(tamperedClaims)).toString("base64url");
+      const v2Body = {
+        schemaVersion: 1,
+        recordType: "order_receipt",
+        ownerPubky: tamperedClaims.buyer,
+        revision: 1,
+        createdAt: tamperedClaims.paid_at,
+        updatedAt: tamperedClaims.paid_at,
+        role: "buyer",
+        receiptId: tamperedClaims.receipt,
+        orderId: tamperedClaims.order,
+        buyerPubky: tamperedClaims.buyer,
+        sellerPubky: tamperedClaims.seller,
+        total: {
+          amountMinor: tamperedClaims.merchandise_total.amount_minor - 1,
+          currency: tamperedClaims.merchandise_total.currency,
+          exponent: tamperedClaims.merchandise_total.exponent,
+        },
+        paidAt: tamperedClaims.paid_at,
+        receiptAttestation: fixture.receipt_attestation.jws,
+      };
+      assert.doesNotThrow(() => parseOrderReceiptAttestation(
+        `${header}.${tamperedPayload}.${signature}`
+      ));
+      assert.throws(() => verifyOrderReceiptAttestation({
+        ...v2Body,
+        receiptAttestation: `${header}.${tamperedPayload}.${signature}`,
+      }));
     });
 
     it("should keep parsing a .7-shaped receipt without the drop-edition fields", () => {

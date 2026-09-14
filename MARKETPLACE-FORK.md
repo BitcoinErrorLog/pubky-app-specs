@@ -77,6 +77,13 @@ Point the app's dependency at it directly:
 
 Order receipt attestations now accept and verify the captured `pubky-order-receipt+v2` format with separate settlement and merchandise money objects, while preserving v1 parsing and verification. The wasm/JS parse and verify functions return snake_case claim keys for both versions.
 
+## Changes in `.12`
+
+Closed the v2 receipt-attestation validation and API-safety review items:
+money validation now reuses `PubkyAppMoney`, record-value conversions fail
+closed, v2 claims no longer expose a zeroed v1 total, and the v2 constants and
+package cases are exported and documented.
+
 ## Changes in `.10`
 
 Collection item validation now accepts marketplace listing entity IDs, including

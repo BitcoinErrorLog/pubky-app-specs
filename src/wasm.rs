@@ -674,31 +674,34 @@ pub fn verify_purchase_attestation(review: JsValue) -> Result<JsValue, String> {
 }
 
 /// Parses and structurally validates a compact JWS order receipt
-/// attestation, returning its claims as a plain JSON object with the
-/// attestation's wire-format snake_case keys. Does NOT verify the
+/// attestation, returning its v1 or v2 claims as a plain JSON object with
+/// the attestation's wire-format snake_case keys (`total_minor` for v1;
+/// `settlement_total` and `merchandise_total` for v2). Does NOT verify the
 /// signature — see `verifyOrderReceiptAttestation`.
 #[wasm_bindgen(js_name = parseOrderReceiptAttestation)]
 pub fn parse_order_receipt_attestation(jws: &str) -> Result<JsValue, String> {
     let attestation = PubkyAppOrderReceiptAttestation::parse(jws)?;
-    match &attestation.v2_claims {
+    match attestation.v2_claims() {
         Some(claims) => to_value(claims).map_err(|e| e.to_string()),
-        None => to_value(&attestation.claims).map_err(|e| e.to_string()),
+        None => to_value(attestation.v1_claims().expect("v1 claims")).map_err(|e| e.to_string()),
     }
 }
 
 /// The full local verification recipe for one order receipt record: parses
 /// the record (camelCase JSON) against the spec, parses its embedded
 /// attestation, verifies the Ed25519 signature against the `iss` pubky, and
-/// checks the claim bindings. Returns the verified claims. Whether `iss` is
-/// a *trusted* attestor remains the caller's policy decision.
+/// checks the claim bindings. Returns the verified v1 or v2 claims with the
+/// same snake_case keys. For v2, `settlement_total` is signed but is not bound
+/// to a field in the receipt record. Whether `iss` is a trusted attestor
+/// remains the caller's policy decision.
 #[wasm_bindgen(js_name = verifyOrderReceiptAttestation)]
 pub fn verify_order_receipt_attestation(receipt: JsValue) -> Result<JsValue, String> {
     let receipt: PubkyAppMarketplaceOrderReceipt =
         from_value(receipt).map_err(|e| e.to_string())?;
     let attestation = PubkyAppOrderReceiptAttestation::verify_for_order_receipt(&receipt)?;
-    match &attestation.v2_claims {
+    match attestation.v2_claims() {
         Some(claims) => to_value(claims).map_err(|e| e.to_string()),
-        None => to_value(&attestation.claims).map_err(|e| e.to_string()),
+        None => to_value(attestation.v1_claims().expect("v1 claims")).map_err(|e| e.to_string()),
     }
 }
 
