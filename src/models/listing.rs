@@ -99,6 +99,9 @@ pub enum PubkyAppFulfillmentMethod {
     Physical,
     Digital,
     Pickup,
+    /// Carrier delivery. Distinct from `physical`, which still requires package
+    /// facts and a shipping option. A listing may offer `shipping` alone.
+    Shipping,
 }
 
 /// Media attachment type.
@@ -1718,6 +1721,61 @@ mod tests {
         listing.package = None;
         listing.shipping_options = vec![];
         assert!(listing.validate(None).is_ok());
+    }
+
+    /// Live homeserver record rejected by nexusd pinned at 7d79e5e8:
+    /// seller n3pfudgx…, listing 2577a25c412e44a7bc56118c91d98623,
+    /// `fulfillmentMethods: ["shipping"]`.
+    const LIVE_SHIPPING_LISTING: &str = r#"{"schemaVersion":1,"recordType":"listing","ownerPubky":"n3pfudgxncn8i1e6icuq7umoczemjuyi6xdfrfczk3o8ej3e55my","listingId":"2577a25c412e44a7bc56118c91d98623","revision":1,"createdAt":"2026-09-18T08:51:57.956Z","updatedAt":"2026-09-18T08:51:57.956Z","state":"active","title":"Issue 12 staging proof - do not buy","description":"Authorized staging-only proof.","taxonomyVersion":1,"categoryId":"other","condition":"new","tags":["proof"],"location":{"countryCode":"US"},"media":[{"id":"proof","type":"image","url":"pubky://n3pfudgxncn8i1e6icuq7umoczemjuyi6xdfrfczk3o8ej3e55my/pub/pubky.app/marketplace/v1/media/proof","contentHash":"0000000000000000000000000000000000000000000000000000000000000000","mimeType":"image/png","byteSize":1,"width":1,"height":1,"altText":"Proof image"}],"variants":[{"id":"proof","options":{},"quantity":1,"mediaIds":["proof"],"enabled":true}],"sale":{"format":"fixed_price","unitPrice":{"amountMinor":100,"currency":"USD","exponent":2},"acceptsOffers":false},"fulfillmentMethods":["shipping"],"shippingOptions":[],"returnPolicy":{"acceptsReturns":false,"buyerPaysReturnShipping":false},"adultOnly":false}"#;
+
+    #[test]
+    fn test_shipping_fulfillment_parses_live_listing_and_shop_triple() {
+        let listing: PubkyAppListing =
+            serde_json::from_str(LIVE_SHIPPING_LISTING).expect("the live shipping listing parses");
+        assert_eq!(
+            listing.listing_id, "2577a25c412e44a7bc56118c91d98623",
+            "listing id"
+        );
+        assert_eq!(
+            listing.fulfillment_methods,
+            vec![PubkyAppFulfillmentMethod::Shipping]
+        );
+        listing
+            .validate(Some("2577a25c412e44a7bc56118c91d98623"))
+            .expect("the live shipping listing validates");
+
+        let both_ways_json = LIVE_SHIPPING_LISTING.replace(
+            r#""fulfillmentMethods":["shipping"]"#,
+            r#""fulfillmentMethods":["physical","shipping","pickup"]"#,
+        );
+        let both_ways: PubkyAppListing =
+            serde_json::from_str(&both_ways_json).expect("the shop both-ways triple parses");
+        assert_eq!(
+            both_ways.fulfillment_methods,
+            vec![
+                PubkyAppFulfillmentMethod::Physical,
+                PubkyAppFulfillmentMethod::Shipping,
+                PubkyAppFulfillmentMethod::Pickup,
+            ]
+        );
+
+        let mut shop_shape = valid_listing();
+        shop_shape.fulfillment_methods = vec![
+            PubkyAppFulfillmentMethod::Physical,
+            PubkyAppFulfillmentMethod::Shipping,
+            PubkyAppFulfillmentMethod::Pickup,
+        ];
+        shop_shape
+            .validate(None)
+            .expect("physical+shipping+pickup stays within the cap of 3");
+
+        shop_shape
+            .fulfillment_methods
+            .push(PubkyAppFulfillmentMethod::Digital);
+        assert!(
+            shop_shape.validate(None).is_err(),
+            "MAX_FULFILLMENT_METHODS stays 3"
+        );
     }
 
     #[test]
