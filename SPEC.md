@@ -389,11 +389,11 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 | `media`              | Array    | Media attachments.                       | Required. 1–13 entries; 1–12 images and at most 1 video; unique ids; URIs must be seller-owned marketplace media.  |
 | `variants`           | Array    | Purchasable variants (SKUs).             | Required. 1–100 entries; unique ids and SKUs; quantity 0–1000000; media references must exist.                     |
 | `sale`               | Object   | Sale terms.                              | Required. `format` is `fixed_price` (positive `unitPrice`, `acceptsOffers`) or `auction` (see below).              |
-| `fulfillmentMethods` | Array    | Delivery methods.                        | Required. 1–3 unique values of `physical`, `digital`, `pickup`, `shipping`.                                        |
+| `fulfillmentMethods` | Array    | Delivery methods.                        | Required. 1–4 unique values of `physical`, `digital`, `pickup`, `shipping`.                                        |
 | `package`            | Object   | Package facts (weight/dimensions).       | Required with `physical` fulfillment, forbidden otherwise.                                                         |
 | `shippingOptions`    | Array    | Shipping options.                        | Up to 20 unique-id options (`free`, `flat`, `calculated`). Required non-empty with `physical`, forbidden otherwise. |
 | `returnPolicy`       | Object   | Return policy.                           | Required. Return window (1–365 days) required iff returns are accepted.                                            |
-| `digitalLock`        | Object   | Locks policy for digital delivery.       | Required with `digital` fulfillment, forbidden otherwise.                                                          |
+| `digitalLock`        | Object   | Locks policy for digital delivery.       | Optional with `digital` fulfillment (Locks delivery), forbidden otherwise.                                         |
 | `adultOnly`          | Boolean  | Adult-content flag.                      | Required.                                                                                                          |
 
 **Auction rules:** all auction prices must share one asset and exponent; `endsAt` must follow `startsAt`; reserve price must not be below the starting price; buy-now price must exceed the starting price; anti-sniping windows are 0–3600 seconds; auctions require exactly one variant. Variant price overrides and flat shipping prices must use the listing asset.

@@ -39,7 +39,7 @@ const MAX_OPTION_KEY_LENGTH: usize = 40;
 const MAX_OPTION_VALUE_LENGTH: usize = 80;
 const MAX_SKU_LENGTH: usize = 64;
 const MAX_QUANTITY: i64 = 1_000_000;
-const MAX_FULFILLMENT_METHODS: usize = 3;
+const MAX_FULFILLMENT_METHODS: usize = 4;
 const MAX_SHIPPING_OPTIONS: usize = 20;
 const MAX_SHIPPING_LABEL_LENGTH: usize = 100;
 const MAX_SHIPPING_PROVIDER_LENGTH: usize = 50;
@@ -622,7 +622,8 @@ impl PubkyAppReturnPolicy {
     }
 }
 
-/// Locks policy configuration required for digitally fulfilled listings.
+/// Locks policy for a digitally fulfilled listing delivered through Locks.
+/// Optional with `digital` fulfillment, forbidden without it.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -1223,11 +1224,8 @@ impl Validatable for PubkyAppListing {
                     .into(),
             );
         }
-        if has_digital != self.digital_lock.is_some() {
-            return Err(
-                "Validation Error: digital fulfillment and digitalLock must be configured together"
-                    .into(),
-            );
+        if self.digital_lock.is_some() && !has_digital {
+            return Err("Validation Error: digitalLock requires digital fulfillment".into());
         }
 
         if let Some(package) = &self.package {
@@ -1767,32 +1765,248 @@ mod tests {
         ];
         shop_shape
             .validate(None)
-            .expect("physical+shipping+pickup stays within the cap of 3");
-
-        shop_shape
-            .fulfillment_methods
-            .push(PubkyAppFulfillmentMethod::Digital);
-        assert!(
-            shop_shape.validate(None).is_err(),
-            "MAX_FULFILLMENT_METHODS stays 3"
-        );
+            .expect("physical+shipping+pickup parses");
     }
 
-    #[test]
-    fn test_validate_digital_requires_lock() {
-        let mut listing = valid_listing();
-        listing.fulfillment_methods = vec![PubkyAppFulfillmentMethod::Digital];
-        listing.package = None;
-        listing.shipping_options = vec![];
-        assert!(listing.validate(None).is_err());
-
-        listing.digital_lock = Some(PubkyAppDigitalLock {
+    fn valid_lock() -> PubkyAppDigitalLock {
+        PubkyAppDigitalLock {
             policy_uri: format!("pubky://{OWNER}/pub/locks.app/policies/standard.json"),
             criterion_id: "criterion-1".to_string(),
             resource_hash: "b".repeat(64),
             minimum_confirmations: 2,
+        }
+    }
+
+    fn digital_only_listing() -> PubkyAppListing {
+        let mut listing = valid_listing();
+        listing.fulfillment_methods = vec![PubkyAppFulfillmentMethod::Digital];
+        listing.package = None;
+        listing.shipping_options = vec![];
+        listing
+    }
+
+    #[test]
+    fn digital_without_lock_is_valid() {
+        let listing = digital_only_listing();
+        assert!(listing.digital_lock.is_none());
+        listing
+            .validate(None)
+            .expect("digital without digitalLock is valid");
+
+        let json = serde_json::to_string(&listing).expect("serialize");
+        assert!(!json.contains("digitalLock"), "absent lock is omitted");
+        let parsed: PubkyAppListing = serde_json::from_str(&json).expect("round trip parses");
+        parsed.validate(None).expect("round trip validates");
+
+        let mut pickup_digital = digital_only_listing();
+        pickup_digital.fulfillment_methods = vec![
+            PubkyAppFulfillmentMethod::Pickup,
+            PubkyAppFulfillmentMethod::Digital,
+        ];
+        pickup_digital
+            .validate(None)
+            .expect("pickup+digital without digitalLock is valid");
+
+        let mut ship_digital = valid_listing();
+        ship_digital.fulfillment_methods = vec![
+            PubkyAppFulfillmentMethod::Physical,
+            PubkyAppFulfillmentMethod::Shipping,
+            PubkyAppFulfillmentMethod::Digital,
+        ];
+        ship_digital
+            .validate(None)
+            .expect("physical+shipping+digital without digitalLock is valid");
+    }
+
+    #[test]
+    fn digital_with_lock_still_valid() {
+        let mut listing = digital_only_listing();
+        listing.digital_lock = Some(valid_lock());
+        listing
+            .validate(None)
+            .expect("a Locks listing still validates");
+
+        let json = serde_json::to_string(&listing).expect("serialize");
+        let parsed: PubkyAppListing = serde_json::from_str(&json).expect("round trip parses");
+        assert_eq!(parsed.digital_lock, Some(valid_lock()));
+        parsed.validate(None).expect("round trip validates");
+
+        let mut bad_lock = digital_only_listing();
+        bad_lock.digital_lock = Some(PubkyAppDigitalLock {
+            resource_hash: "not-hex".to_string(),
+            ..valid_lock()
         });
-        assert!(listing.validate(None).is_ok());
+        assert!(
+            bad_lock.validate(None).is_err(),
+            "the lock's own validation still applies"
+        );
+    }
+
+    #[test]
+    fn lock_content_path_still_rejected() {
+        let mut listing = digital_only_listing();
+        listing.digital_lock = Some(valid_lock());
+        let json = serde_json::to_string(&listing).expect("serialize");
+        let with_content_path = json.replace(
+            r#""minimumConfirmations":2"#,
+            r#""minimumConfirmations":2,"contentPath":"/priv/locks.app/content/file""#,
+        );
+        assert_ne!(json, with_content_path, "fixture injected contentPath");
+        let err = serde_json::from_str::<PubkyAppListing>(&with_content_path)
+            .expect_err("contentPath is an unknown lock field");
+        assert!(err.to_string().contains("contentPath"), "{err}");
+    }
+
+    #[test]
+    fn lock_without_digital_rejected() {
+        let mut listing = valid_listing();
+        listing.digital_lock = Some(valid_lock());
+        let err = listing
+            .validate(None)
+            .expect_err("digitalLock without digital fulfillment");
+        assert!(
+            err.contains("digitalLock requires digital fulfillment"),
+            "{err}"
+        );
+
+        let mut pickup = digital_only_listing();
+        pickup.fulfillment_methods = vec![PubkyAppFulfillmentMethod::Pickup];
+        pickup.digital_lock = Some(valid_lock());
+        assert!(pickup.validate(None).is_err());
+    }
+
+    #[test]
+    fn physical_requires_package_and_shipping_option() {
+        let mut listing = valid_listing();
+        listing.fulfillment_methods = vec![
+            PubkyAppFulfillmentMethod::Physical,
+            PubkyAppFulfillmentMethod::Shipping,
+            PubkyAppFulfillmentMethod::Digital,
+        ];
+        listing.validate(None).expect("ship+digital with package");
+
+        let mut no_package = listing.clone();
+        no_package.package = None;
+        let err = no_package.validate(None).expect_err("package required");
+        assert!(err.contains("requires package facts"), "{err}");
+
+        let mut no_option = listing;
+        no_option.shipping_options = vec![];
+        let err = no_option
+            .validate(None)
+            .expect_err("shipping option required");
+        assert!(err.contains("requires a shipping option"), "{err}");
+    }
+
+    #[test]
+    fn no_physical_forbids_package_and_shipping_options() {
+        for methods in [
+            vec![PubkyAppFulfillmentMethod::Digital],
+            vec![
+                PubkyAppFulfillmentMethod::Pickup,
+                PubkyAppFulfillmentMethod::Digital,
+            ],
+        ] {
+            let mut with_package = valid_listing();
+            with_package.fulfillment_methods = methods.clone();
+            with_package.shipping_options = vec![];
+            let err = with_package.validate(None).expect_err("package forbidden");
+            assert!(err.contains("require physical fulfillment"), "{err}");
+
+            let mut with_options = valid_listing();
+            with_options.fulfillment_methods = methods;
+            with_options.package = None;
+            let err = with_options
+                .validate(None)
+                .expect_err("shipping options forbidden");
+            assert!(err.contains("require physical fulfillment"), "{err}");
+        }
+    }
+
+    #[test]
+    fn four_methods_parse() {
+        let json = LIVE_SHIPPING_LISTING
+            .replace(
+                r#""fulfillmentMethods":["shipping"],"shippingOptions":[]"#,
+                r#""fulfillmentMethods":["physical","shipping","pickup","digital"],"package":{"weightGrams":1500,"lengthMillimeters":350,"widthMillimeters":250,"heightMillimeters":150},"shippingOptions":[{"pricing":"free","id":"ship_01","label":"Free","estimatedMinDays":2,"estimatedMaxDays":7}]"#,
+            );
+        assert_ne!(json, LIVE_SHIPPING_LISTING, "fixture rewritten");
+        let listing: PubkyAppListing = serde_json::from_str(&json).expect("four methods parse");
+        assert_eq!(
+            listing.fulfillment_methods,
+            vec![
+                PubkyAppFulfillmentMethod::Physical,
+                PubkyAppFulfillmentMethod::Shipping,
+                PubkyAppFulfillmentMethod::Pickup,
+                PubkyAppFulfillmentMethod::Digital,
+            ]
+        );
+        listing
+            .validate(Some("2577a25c412e44a7bc56118c91d98623"))
+            .expect("four methods validate");
+    }
+
+    #[test]
+    fn duplicate_methods_rejected() {
+        let mut listing = digital_only_listing();
+        listing.fulfillment_methods = vec![
+            PubkyAppFulfillmentMethod::Digital,
+            PubkyAppFulfillmentMethod::Digital,
+        ];
+        let err = listing.validate(None).expect_err("duplicate methods");
+        assert!(err.contains("must be unique"), "{err}");
+
+        let mut five = valid_listing();
+        five.fulfillment_methods = vec![
+            PubkyAppFulfillmentMethod::Physical,
+            PubkyAppFulfillmentMethod::Shipping,
+            PubkyAppFulfillmentMethod::Pickup,
+            PubkyAppFulfillmentMethod::Digital,
+            PubkyAppFulfillmentMethod::Physical,
+        ];
+        let err = five
+            .validate(None)
+            .expect_err("five methods exceed the cap");
+        assert!(err.contains("1-4 fulfillment methods"), "{err}");
+
+        let mut empty = digital_only_listing();
+        empty.fulfillment_methods = vec![];
+        assert!(empty.validate(None).is_err());
+    }
+
+    #[test]
+    fn digital_pin_is_delta_on_shipping_pin() {
+        let tokens: Vec<String> = [
+            PubkyAppFulfillmentMethod::Physical,
+            PubkyAppFulfillmentMethod::Digital,
+            PubkyAppFulfillmentMethod::Pickup,
+            PubkyAppFulfillmentMethod::Shipping,
+        ]
+        .iter()
+        .map(|method| serde_json::to_string(method).expect("serialize"))
+        .collect();
+        assert_eq!(
+            tokens,
+            [
+                r#""physical""#,
+                r#""digital""#,
+                r#""pickup""#,
+                r#""shipping""#
+            ]
+        );
+        let unknown = LIVE_SHIPPING_LISTING.replace(
+            r#""fulfillmentMethods":["shipping"]"#,
+            r#""fulfillmentMethods":["email"]"#,
+        );
+        assert!(
+            serde_json::from_str::<PubkyAppListing>(&unknown).is_err(),
+            "no variant beyond the shipping pin's four"
+        );
+        let listing: PubkyAppListing =
+            serde_json::from_str(LIVE_SHIPPING_LISTING).expect("shipping pin fixture parses");
+        listing
+            .validate(Some("2577a25c412e44a7bc56118c91d98623"))
+            .expect("shipping pin fixture validates");
     }
 
     #[test]
