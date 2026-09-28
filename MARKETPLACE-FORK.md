@@ -71,7 +71,7 @@ Point the app's dependency at it directly:
 
 ## Specification additions (no code change)
 
-- **Encrypted Private Records (`pubky-priv-aead/v1`)** in `SPEC.md`: the sealed storage form of the watchlist, order receipts and badge checkpoints. It covers per-owner random data keys, HKDF-SHA256 record and path subkeys, HMAC-derived and listed entry paths under `/priv/pubky.app/marketplace/v2/s/`, the XChaCha20-Poly1305 envelope and associated data, writer obligations (read-back before deleting plaintext, never overwrite what does not open, no plaintext fallback), the recovery key file, and a test vector. The record schemas are unchanged.
+- **Encrypted Private Records (`pubky-priv-aead/v1`)** in `SPEC.md`: the sealed storage form of the watchlist, order receipts and badge checkpoints. It covers per-owner random data keys, HKDF-SHA256 record and path subkeys, HMAC-derived and listed entry paths under `/priv/pubky.app/marketplace/v2/s/`, the XChaCha20-Poly1305 envelope with associated data bound to the entry name (so the recovery file alone opens every entry after a directory listing), reader validation, writer obligations (read-back before deleting plaintext, never overwrite what does not open or does not validate, no plaintext fallback, no private paths in logs), the badge checkpoint schema and its v1 layout, the recovery key file and its handling, and a test vector. The record schemas are unchanged.
 
 ## Changes in `.8`
 
