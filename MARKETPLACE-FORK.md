@@ -73,6 +73,22 @@ Point the app's dependency at it directly:
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
 
+## Changes in `.13`
+
+Reconciles the two fork lines. `marketplace-4-build` (`.9`-`.12`) and the
+line Nexus pinned (`2f2797a8`, `cursor/specs-pin-7d79e5e8-22a0`) were rebased
+from the same 0.6.2 base and diverged, so neither contained the other:
+
+- From `marketplace-4-build`: open-world records, receipt attestation v2,
+  entity listing ids in collections, and seller-set `deliveryAssumeDays` /
+  `autoCompleteDays` on the shop record (PR #4).
+- From the Nexus line, re-applied on top: `shipping` as a fulfillment method,
+  `digitalLock` optional with `digital` fulfillment (still forbidden without
+  it), and the `pubky-priv-aead/v1` specification text.
+
+The listing test that expected an unknown lock field to be rejected now
+asserts the open-world behavior: the field is tolerated and dropped.
+
 ## Changes in `.11`
 
 Order receipt attestations now accept and verify the captured `pubky-order-receipt+v2` format with separate settlement and merchandise money objects, while preserving v1 parsing and verification. The wasm/JS parse and verify functions return snake_case claim keys for both versions.
@@ -104,6 +120,10 @@ forward-compat rule:
   receipt attestation header + claims, drop-edition attestation header +
   claims. An attestation is an opaque signed string, not an evolving
   record.
+
+## Specification additions (no code change)
+
+- **Encrypted Private Records (`pubky-priv-aead/v1`)** in `SPEC.md`: the sealed storage form of the watchlist, order receipts and badge checkpoints. It covers per-owner random data keys, HKDF-SHA256 record and path subkeys, HMAC-derived and listed entry paths under `/priv/pubky.app/marketplace/v2/s/`, the XChaCha20-Poly1305 envelope and associated data, writer obligations (read-back before deleting plaintext, never overwrite what does not open, no plaintext fallback), the recovery key file, and a test vector. The record schemas are unchanged.
 
 ## Changes in `.8`
 
