@@ -69,6 +69,10 @@ Point the app's dependency at it directly:
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
 
+## Specification additions (no code change)
+
+- **Encrypted Private Records (`pubky-priv-aead/v1`)** in `SPEC.md`: the sealed storage form of the watchlist, order receipts and badge checkpoints. It covers per-owner random data keys, HKDF-SHA256 record and path subkeys, HMAC-derived and listed entry paths under `/priv/pubky.app/marketplace/v2/s/`, the XChaCha20-Poly1305 envelope and associated data, writer obligations (read-back before deleting plaintext, never overwrite what does not open, no plaintext fallback), the recovery key file, and a test vector. The record schemas are unchanged.
+
 ## Changes in `.8`
 
 Marketplace drops (scheduled, limited-quantity releases) and numbered

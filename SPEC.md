@@ -558,6 +558,7 @@ It is a **single revisioned document** (singleton per user, like `shop.json`) ra
 - **Key uniqueness:** every `(listingOwnerPubky, listingId)` key appears at most once across `items` **and** `tombstones` combined. The document is the post-merge resolved state: a listing is either watched or removed, never both.
 - **Entry timestamps are integer milliseconds** (not ISO-8601 like the document-level datetimes) on purpose: they are last-write-wins merge keys that clients compare numerically, immune to offset-formatting differences between writers.
 - **Merge rule (normative for clients):** per listing key, the entry with the greater timestamp wins (`watchedAtMs` vs `removedAtMs`); ties resolve to the tombstone (deletion wins). The merged document is written back with `revision` incremented.
+- **Encrypted storage:** a client holding the owner's data key stores this document sealed at the `watchlist` entry described in [Encrypted Private Records](#encrypted-private-records-pubky-priv-aeadv1). It moves any plaintext `watchlist.json` into that entry, merged, and deletes the plaintext only after the sealed write reads back.
 
 ---
 
@@ -566,6 +567,8 @@ It is a **single revisioned document** (singleton per user, like `shop.json`) ra
 **Description:** A PRIVATE portable order receipt — the buyer's or seller's own durable copy of a completed order, written to their OWN homeserver. The marketplace transaction service holds the canonical order state, but a service is an operator that can disappear; this record is the **credible exit for orders**: each trade party keeps a signed, self-contained receipt (the embedded `receiptAttestation` JWS is offline-verifiable) on storage they control, so a purchase history survives the operator. All fields are serialized in camelCase and unknown fields are rejected.
 
 **URI:** `/priv/pubky.app/marketplace/v1/receipts/:receipt_id`
+
+**Encrypted storage:** a client holding the owner's data key stores each receipt sealed at its `order_receipt` entry (id = `receiptId`), described in [Encrypted Private Records](#encrypted-private-records-pubky-priv-aeadv1). The v1 path above is where pre-encryption clients wrote it, and where encrypting clients move it from.
 
 **Privacy rationale:** like the watchlist, this is a `/priv/` record — an order history reveals counterparties, amounts, and purchase timing, so it must never be world-readable, directory-listable, or indexable; the homeserver refuses reads, listings, and writes on `/priv/` paths from anyone but the owner's own sessions. It is deliberately **not** wired into `PubkyAppObject` or the URI parser's resource resolution: watchers and indexers never see it. Unlike the watchlist singleton, receipts are one record per order under `receipts/:receipt_id` (the transaction service's receipt UUID, lowercase hyphenated): receipts are immutable facts, not merge targets, and per-id paths let a client sync incrementally instead of rewriting one growing document.
 
@@ -661,6 +664,110 @@ It is a **single revisioned document** (singleton per user, like `shop.json`) ra
 2. Decode `iss` from z-base-32 — that *is* the Ed25519 verification key. Verify the signature over `base64url(header) || '.' || base64url(claims)`.
 3. Check bindings against the receipt record (which must carry BOTH `editionAttestation` and the `drop` object): `receipt == receiptId`, `buyer == buyerPubky`, `seller == sellerPubky`, and `drop`/`edition`/`of` equal the record's `drop` object fields.
 4. Accept as **verified** only if `iss` is on your own attestor trust list. The signature proves key possession, never legitimacy.
+
+---
+
+### Encrypted Private Records (`pubky-priv-aead/v1`)
+
+**Description:** The sealed storage form of the private marketplace records ([watchlist](#pubkyappwatchlist-private), [order receipts](#pubkyappmarketplaceorderreceipt-private)) and the owner's badge checkpoints. `/priv/` already refuses reads and listings to everyone but the owner's sessions, but the homeserver operator can still read every file. A client that holds the owner's data key seals each record before writing it, so the homeserver stores only ciphertext under names that reveal neither the record type nor its id. The plaintext is the unchanged record document; nothing in the record schemas changes.
+
+**Data keys:** Each owner has one or more random 32-byte data keys, each named by a key id of 32 lowercase hex characters. A key is never derived from a session, grant or AuthToken. The owner's keys are ordered oldest first, and one of them is the **current** key. The marketplace transaction service holds the keys sealed at rest and releases them only to a session whose verified grant covers `/priv/pubky.app/` with read and write (`GET /v1/me/priv-keys`). Clients keep released keys in memory only.
+
+**Subkeys:** For every data key:
+
+```
+record key = HKDF-SHA256(ikm = data key, salt = "pubky-priv-aead/v1", info = "record", length = 32)
+path key   = HKDF-SHA256(ikm = data key, salt = "pubky-priv-aead/v1", info = "path",   length = 32)
+```
+
+**Families and ids:**
+
+| **Record**              | **family**                | **id**                                             | **Entry name**   |
+| ----------------------- | ------------------------- | -------------------------------------------------- | ---------------- |
+| Watchlist               | `watchlist`               | `watchlist`                                        | derived          |
+| Order receipt           | `order_receipt`           | the receipt id (lowercase hyphenated UUID)         | derived          |
+| Activity badge checkpoint | `attention_seen/activity` | the entry name                                   | listed           |
+| Orders badge checkpoint | `attention_seen/orders`   | the entry name                                     | listed           |
+
+A family, id and key id never contain `|`.
+
+**Paths:** Paths use the path key of the owner's **first** (oldest) data key, so they do not move when a newer key becomes current.
+
+```
+family segment = base64url(HMAC-SHA256(path key, "family|" + family))
+entry segment  = base64url(HMAC-SHA256(path key, "id|" + family + "|" + id))
+
+derived entry: /priv/pubky.app/marketplace/v2/s/{family segment}/{entry segment}
+listed entry:  /priv/pubky.app/marketplace/v2/s/{family segment}/{name}
+```
+
+`base64url` is RFC 4648 §5 without padding. A **listed** entry is found by listing its family directory. Its name is a fresh random 32-character lowercase hex string, and that name is also its id. Badge checkpoints are listed entries because a family holds many immutable entries whose maximum is the value.
+
+**Envelope:** The stored document is a JSON object with exactly these fields:
+
+| **Field** | **Type** | **Validation Rules**                                                                  |
+| --------- | -------- | ------------------------------------------------------------------------------------- |
+| `enc`     | String   | Required. Must be `"pubky-priv-aead/v1"`.                                             |
+| `kid`     | String   | Required. The key id the record is sealed under; 32 lowercase hex characters.         |
+| `nonce`   | String   | Required. base64url (unpadded) of a fresh random 24-byte XChaCha20-Poly1305 nonce.    |
+| `ct`      | String   | Required. base64url (unpadded) of the XChaCha20-Poly1305 ciphertext with its 16-byte tag. |
+
+Unknown fields are rejected.
+
+**Sealing (writers):**
+
+1. Serialize the record document as UTF-8 JSON.
+2. Encrypt it with XChaCha20-Poly1305 under the **current** key's record key, a fresh random 24-byte nonce, and associated data `{owner}|{family}|{id}|{kid}` as UTF-8, where `owner` is the owner's 52-character pubky.
+3. Write the envelope to the entry path, then read it back. A write counts only when the stored envelope opens to the same document.
+
+**Opening recipe (readers, offline):**
+
+1. Reject anything that is not an envelope with exactly the fields above.
+2. Find the data key whose key id equals `kid`. An unknown `kid` is an error, never an empty record.
+3. Decrypt `ct` with that key's record key, the envelope's `nonce`, and the associated data `{owner}|{family}|{id}|{kid}`. Authentication failure means the entry was tampered with, moved to another owner, family or id, or sealed under another key. Treat it as unreadable.
+4. Parse the plaintext as the record document and validate it against its record schema. For an order receipt, then run the [order receipt verification recipe](#order-receipt-attestation-embedded-jws).
+
+**Writer obligations:**
+
+- An entry that does not open is never overwritten or deleted.
+- A writer without a data key writes nothing. It never falls back to a plaintext v1 path and never writes an empty document over a sealed one.
+- **Moving plaintext v1 records.** A client that finds a plaintext record at its v1 path (`watchlist.json`, `receipts/:receipt_id`, `attention_seen/{side}/{ms}`) must, in this order:
+  1. merge or carry it into the sealed entry;
+  2. write the sealed entry and read it back;
+  3. only then delete the v1 file.
+  A v1 file that does not parse, or whose content does not match its path, stays in place.
+
+**Recovery key file:** Owners can export their data keys to read their records without the marketplace:
+
+```json
+{ "format": "pubky-priv-recovery-key/v1", "enc": "pubky-priv-aead/v1", "owner": "<pubky>", "currentKeyId": "<kid>", "keys": [{ "keyId": "<kid>", "key": "<base64url of 32 bytes>" }] }
+```
+
+`keys` is oldest first. With this file and the owner's homeserver data, the recipe above opens every entry. For receipts, compute the entry segment for each receipt id you hold, or list the `order_receipt` family and open each entry: the decrypted record carries its `receiptId`.
+
+**What is not hidden:** the number of entries per family, their sizes, and their write times.
+
+**Test vector** (inputs and outputs; readers must reproduce every value):
+
+| **Item**            | **Value** |
+| ------------------- | --------- |
+| data key (hex)      | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
+| key id              | `0123456789abcdef0123456789abcdef` |
+| owner               | `pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy` |
+| family / id         | `order_receipt` / `018f47d2-6a27-7c23-a49d-6b21bb770201` |
+| record key (hex)    | `dd32d572cb526afb8650d6a8ae6611e75b6db9a41d389a74280507b2f74c6ce2` |
+| path key (hex)      | `5029c9cc9b46cf3489acb0ed560bb4a1337eb194d9479931e5182710eafa2b82` |
+| path                | `/priv/pubky.app/marketplace/v2/s/XYERVz2efvcmNtICv_HgRsgOhhZ_BW5BkPaSRRUmQ_w/drFSr_su7fkWn_6O7mSTHIekbFRfly7hIldHKsSX6ts` |
+| `attention_seen/orders` family segment | `InCtZ0EnT0foAzvK60hXONp9heYLHj31e4vNDAvuIXw` |
+| associated data     | `pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy|order_receipt|018f47d2-6a27-7c23-a49d-6b21bb770201|0123456789abcdef0123456789abcdef` |
+| nonce (hex)         | `404142434445464748494a4b4c4d4e4f5051525354555657` |
+| plaintext           | `{"schemaVersion":1,"recordType":"order_receipt"}` |
+
+Envelope:
+
+```json
+{"enc": "pubky-priv-aead/v1", "kid": "0123456789abcdef0123456789abcdef", "nonce": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZX", "ct": "RO7jkZWdaLNwhZW-C4Mu6eNxKBGx_CyEPjVIkr024VXH630Zo5FC4sdbnOpsT8S9otZkmFSrby57Og7OZa4ptw"}
+```
 
 ---
 
