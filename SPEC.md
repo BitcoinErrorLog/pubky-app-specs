@@ -356,6 +356,8 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 | `returnPolicy`   | String   | Default return policy.                 | Required (may be empty). Trimmed. Maximum length: 4000 characters.                |
 | `vacationMode`   | Boolean  | Whether the shop is paused (vacation). | Required.                                                                          |
 | `transactionService` | String | HTTPS base URL of the marketplace transaction service this shop sells through. | Optional. Must parse as a URL with scheme exactly `https`, no credentials, no query, no fragment; maximum length 300 characters. Absent fields are not serialized (records without it round-trip unchanged). |
+| `deliveryAssumeDays` | Integer | Days after shipment when delivery is assumed (the transaction service has no carrier feed). | Optional. Whole days, 1–60. Absent means the transaction service's configured default applies. Absent fields are not serialized. |
+| `autoCompleteDays` | Integer | Days after delivery when the order completes unless a return is opened. | Optional. Whole days, 1–60. Absent means the transaction service's configured default applies. Absent fields are not serialized. |
 
 **`transactionService` semantics:** when present, clients MUST resolve transactional commands (checkout, offers, bids, orders) for this shop against this authority, falling back to their configured default when absent. Two different services may register the same public listing — the shop record is the seller's declaration of which one is authoritative.
 
