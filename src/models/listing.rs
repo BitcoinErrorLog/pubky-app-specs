@@ -1843,7 +1843,7 @@ mod tests {
     }
 
     #[test]
-    fn lock_content_path_still_rejected() {
+    fn lock_content_path_is_tolerated_and_dropped() {
         let mut listing = digital_only_listing();
         listing.digital_lock = Some(valid_lock());
         let json = serde_json::to_string(&listing).expect("serialize");
@@ -1852,9 +1852,13 @@ mod tests {
             r#""minimumConfirmations":2,"contentPath":"/priv/locks.app/content/file""#,
         );
         assert_ne!(json, with_content_path, "fixture injected contentPath");
-        let err = serde_json::from_str::<PubkyAppListing>(&with_content_path)
-            .expect_err("contentPath is an unknown lock field");
-        assert!(err.to_string().contains("contentPath"), "{err}");
+        let parsed = serde_json::from_str::<PubkyAppListing>(&with_content_path)
+            .expect("unknown lock members are tolerated on the open-world line");
+        let reserialized = serde_json::to_string(&parsed).expect("serialize");
+        assert!(
+            !reserialized.contains("contentPath"),
+            "the unknown member is not carried into the typed record"
+        );
     }
 
     #[test]
