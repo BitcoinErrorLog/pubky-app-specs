@@ -208,6 +208,11 @@ impl PubkyAppPurchaseAttestation {
         if self.claims.role != review.role.as_str() {
             return Err("Attestation Error: role does not match the review role".into());
         }
+        if let Some(order_ref) = &review.order_ref {
+            if &self.claims.order_ref != order_ref {
+                return Err("Attestation Error: order_ref does not match the review orderRef".into());
+            }
+        }
         Ok(())
     }
 
@@ -488,6 +493,23 @@ mod tests {
         // The record's own field validation also accepts the JWS charset.
         let id = review.review_id.clone();
         assert!(review.validate(Some(&id)).is_ok());
+    }
+
+    #[test]
+    fn test_order_ref_binds_to_the_attested_order() {
+        let key = attestor_key();
+        let claims = valid_claims(&attestor_pubky(&key));
+        let jws = sign(&claims, &key);
+
+        let mut review = matching_review(&jws);
+        review.order_ref = Some(claims.order_ref.clone());
+        review.review_id = review.create_id();
+        assert!(PubkyAppPurchaseAttestation::verify_for_review(&review).is_ok());
+
+        review.order_ref = Some("b".repeat(64));
+        review.review_id = review.create_id();
+        let error = PubkyAppPurchaseAttestation::verify_for_review(&review).unwrap_err();
+        assert!(error.contains("order_ref"), "{error}");
     }
 
     #[test]

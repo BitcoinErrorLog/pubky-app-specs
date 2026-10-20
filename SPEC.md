@@ -460,10 +460,12 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 | `ratings`                | Object   | Star ratings.                          | Required. `overall` 1–5; optional `itemAccuracy`, `shipping`, `communication` 1–5. |
 | `text`                   | String   | Review text.                           | Required. Trimmed. Length: 1–5000 characters.                                     |
 | `eligibilityAttestation` | String   | Proof of review eligibility.           | Required. 32–4096 characters of `[A-Za-z0-9._~-]`.                                |
+| `orderRef`               | String   | The attested order's `order_ref`.      | Optional. Lowercase 64-character BLAKE3 hex hash. Must equal the attestation's `order_ref` claim. |
 
 **Validation Notes:**
 
-- The `review_id` is a **Hash ID** derived from `"{listing_uri}:{subject_pubky}:{role}"`, where `listing_uri` is `pubky://<listingOwnerPubky>/pub/pubky.app/marketplace/v1/listings/<listingId>`.
+- The `review_id` is a **Hash ID** derived from `"{listing_uri}:{subject_pubky}:{role}:{orderRef}"`, where `listing_uri` is `pubky://<listingOwnerPubky>/pub/pubky.app/marketplace/v1/listings/<listingId>`. Each attested order therefore gets its own review, and a second order of the same listing never overwrites the first.
+- A record without `orderRef` (written before per-order reviews) keeps the three-part input `"{listing_uri}:{subject_pubky}:{role}"` and stays valid.
 
 ---
 
@@ -496,7 +498,7 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 
 1. Parse the compact JWS; reject unknown header fields, unknown claims, and unknown versions.
 2. Decode `iss` from z-base-32 — that *is* the Ed25519 verification key. Verify the signature over `base64url(header) || '.' || base64url(claims)`.
-3. Check bindings against the review record: `sub == ownerPubky`, `cpk == subjectPubky`, `listing` matches, `role` matches.
+3. Check bindings against the review record: `sub == ownerPubky`, `cpk == subjectPubky`, `listing` matches, `role` matches, and `order_ref == orderRef` when the record carries `orderRef`.
 4. Accept as **verified** only if `iss` is on your own attestor trust list. The signature proves key possession, never legitimacy.
 
 Exact amounts, timestamps finer than a day, addresses, payment identifiers, and bearer material are prohibited in claims.
