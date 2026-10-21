@@ -73,6 +73,30 @@ Point the app's dependency at it directly:
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
 
+## Changes in `.16`
+
+- **Attestor records.** New `marketplace_attestor.rs`: the attestor profile
+  at `/pub/pubky.app/marketplace/v1/attestor/profile` (`operator`, `keys`
+  with validity windows and `compromisedFrom`, `successor`,
+  `issuancePolicy`) and one annotation per attested order at
+  `/pub/pubky.app/marketplace/v1/attestor/annotations/{order_ref}`
+  (`orderRef`, `outcomes` of kind `refunded` or `returned`, `revision`).
+  Both live on the attestor's own homeserver and carry a `proof`: a
+  detached-payload EdDSA compact JWS (`typ` `pubky-attestor-profile+v1` /
+  `pubky-attestor-annotation+v1`) over the RFC 8785 canonical body, verified
+  against the URI's owner.
+- **URIs.** `Resource::AttestorProfile` and `Resource::AttestorAnnotation`,
+  builders `attestor_profile_uri_builder` and
+  `attestor_annotation_uri_builder`. `PubkyAppObject::from_uri` verifies
+  both records; `from_resource` refuses them because it has no owner to
+  verify against.
+- **Vector.** `src/test_fixtures/attestor-records-v1.json`: canonical body,
+  proof and record for one profile and one annotation, signed with a
+  test-only key, for publishers and indexers to assert against.
+- **Wasm.** `verifyAttestorProfile(uri, json)`,
+  `verifyAttestorAnnotation(uri, json)`, `attestorProfileUriBuilder`,
+  `attestorAnnotationUriBuilder`.
+
 ## Changes in `.15`
 
 - **Optional review text.** `PubkyAppMarketplaceReview.text` may be empty

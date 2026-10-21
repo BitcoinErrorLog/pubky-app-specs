@@ -1,10 +1,10 @@
 use crate::{
     constants::{APP_PATH, PROTOCOL, PUBLIC_PATH},
     traits::{HasIdPath, HasPath},
-    PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppListing,
-    PubkyAppMarketplaceDrop, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceReview,
-    PubkyAppMute, PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser,
-    PubkyAppWatchlist,
+    PubkyAppAttestorAnnotation, PubkyAppAttestorProfile, PubkyAppBlob, PubkyAppBookmark,
+    PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppListing, PubkyAppMarketplaceDrop,
+    PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost,
+    PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyAppWatchlist,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -138,4 +138,20 @@ pub fn order_receipt_uri_builder(owner_id: String, receipt_id: String) -> String
 pub fn review_response_uri_builder(responder_id: String, review_id: String) -> String {
     let response_path = PubkyAppReviewResponse::create_path(&review_id);
     [PROTOCOL, &responder_id, &response_path].concat()
+}
+
+/// Builds an attestor profile URI of the form
+/// "pubky://<attestor_id>/pub/pubky.app/marketplace/v1/attestor/profile"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = attestorProfileUriBuilder))]
+pub fn attestor_profile_uri_builder(attestor_id: String) -> String {
+    let path = PubkyAppAttestorProfile::create_path();
+    [PROTOCOL, &attestor_id, &path].concat()
+}
+
+/// Builds an attestor annotation URI of the form
+/// "pubky://<attestor_id>/pub/pubky.app/marketplace/v1/attestor/annotations/<order_ref>"
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = attestorAnnotationUriBuilder))]
+pub fn attestor_annotation_uri_builder(attestor_id: String, order_ref: String) -> String {
+    let path = PubkyAppAttestorAnnotation::create_path(&order_ref);
+    [PROTOCOL, &attestor_id, &path].concat()
 }

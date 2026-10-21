@@ -1,8 +1,9 @@
 use crate::{
     traits::{HasIdPath, HasPath},
-    PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute,
-    PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
+    PubkyAppAttestorAnnotation, PubkyAppAttestorProfile, PubkyAppBlob, PubkyAppBookmark,
+    PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead, PubkyAppListing,
+    PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost,
+    PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -24,6 +25,8 @@ pub enum Resource {
     Drop(String),
     MarketplaceReview(String),
     ReviewResponse(String),
+    AttestorProfile,
+    AttestorAnnotation(String),
     #[default]
     Unknown,
 }
@@ -52,6 +55,10 @@ impl fmt::Display for Resource {
             Resource::ReviewResponse(_) => {
                 PubkyAppReviewResponse::PATH_SEGMENT.trim_end_matches('/')
             }
+            Resource::AttestorProfile => PubkyAppAttestorProfile::PATH_SEGMENT,
+            Resource::AttestorAnnotation(_) => {
+                PubkyAppAttestorAnnotation::PATH_SEGMENT.trim_end_matches('/')
+            }
             Resource::Unknown => "unknown",
         };
         write!(f, "{}", name)
@@ -75,8 +82,13 @@ impl Resource {
             Resource::Drop(id) => Some(id.clone()),
             Resource::MarketplaceReview(id) => Some(id.clone()),
             Resource::ReviewResponse(id) => Some(id.clone()),
+            Resource::AttestorAnnotation(id) => Some(id.clone()),
             // The following variants do not carry an id.
-            Resource::User | Resource::LastRead | Resource::Shop | Resource::Unknown => None,
+            Resource::User
+            | Resource::LastRead
+            | Resource::Shop
+            | Resource::AttestorProfile
+            | Resource::Unknown => None,
         }
     }
 }

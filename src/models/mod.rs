@@ -11,6 +11,7 @@ pub mod last_read;
 pub mod listing;
 pub mod marketplace;
 pub mod marketplace_attestation;
+pub mod marketplace_attestor;
 pub mod marketplace_review;
 pub mod marketplace_weight;
 pub mod mute;
@@ -24,9 +25,10 @@ pub mod user;
 pub mod watchlist;
 
 use super::{
-    PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute,
-    PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser,
+    PubkyAppAttestorAnnotation, PubkyAppAttestorProfile, PubkyAppBlob, PubkyAppBookmark,
+    PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead, PubkyAppListing,
+    PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost,
+    PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser,
 };
 
 /// A unified enum wrapping all PubkyApp objects.
@@ -47,14 +49,26 @@ pub enum PubkyAppObject {
     Drop(drop::PubkyAppMarketplaceDrop),
     MarketplaceReview(marketplace_review::PubkyAppMarketplaceReview),
     ReviewResponse(review_response::PubkyAppReviewResponse),
+    AttestorProfile(marketplace_attestor::PubkyAppAttestorProfile),
+    AttestorAnnotation(marketplace_attestor::PubkyAppAttestorAnnotation),
 }
 
 impl PubkyAppObject {
     /// Given a URI and a blob (raw data from the homeserver),
     /// this function returns the fully formed PubkyAppObject.
+    /// Attestor records are verified against the URI's owner here.
     pub fn from_uri<S: AsRef<str>>(uri: S, blob: &[u8]) -> Result<Self, String> {
-        let parsed_uri = ParsedUri::try_from(uri.as_ref())?;
-        Self::from_resource(&parsed_uri.resource, blob)
+        let uri = uri.as_ref();
+        let parsed_uri = ParsedUri::try_from(uri)?;
+        match parsed_uri.resource {
+            Resource::AttestorProfile => Ok(PubkyAppObject::AttestorProfile(
+                PubkyAppAttestorProfile::from_verified_json(uri, blob)?,
+            )),
+            Resource::AttestorAnnotation(_) => Ok(PubkyAppObject::AttestorAnnotation(
+                PubkyAppAttestorAnnotation::from_verified_json(uri, blob)?,
+            )),
+            resource => Self::from_resource(&resource, blob),
+        }
     }
 
     /// Given a Resource and a blob (raw data from the homeserver),
@@ -123,6 +137,9 @@ impl PubkyAppObject {
                 let response = <PubkyAppReviewResponse as Validatable>::try_from(blob, review_id)?;
                 Ok(PubkyAppObject::ReviewResponse(response))
             }
+            Resource::AttestorProfile | Resource::AttestorAnnotation(_) => Err(
+                "Attestor records verify against their owner: use PubkyAppObject::from_uri".into(),
+            ),
             Resource::Unknown => Err(format!("Unrecognized resource {:?}", resource)),
         }
     }
