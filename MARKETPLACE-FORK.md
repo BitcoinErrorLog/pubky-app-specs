@@ -73,6 +73,24 @@ Point the app's dependency at it directly:
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
 
+## Changes in `.14`
+
+- **One review per attested order.** `PubkyAppMarketplaceReview` gains an
+  optional `orderRef` (the embedded attestation's `order_ref` claim). When
+  present it is part of the hash ID
+  (`"{listing_uri}:{subject_pubky}:{role}:{orderRef}"`), so a repeat buyer's
+  review of a second order gets its own path instead of overwriting the first.
+  The attestation binding check requires `order_ref == orderRef`. Records
+  without `orderRef` keep the three-part ID and stay valid, so nothing
+  already published needs migrating.
+- **One count per attested order.** A record with `orderRef` and a legacy one
+  can embed the same attestation, and both verify at their own paths. A
+  verified review therefore counts once per `(iss, order_ref)` and role: the
+  record with `orderRef` counts, the legacy one is left out of counts,
+  averages and lists. Helpers: `PubkyAppPurchaseAttestation::order_key()`
+  returns `(iss, order_ref)`, `PubkyAppMarketplaceReview::is_order_scoped()`
+  tells the two apart.
+
 ## Changes in `.13`
 
 Reconciles the two fork lines. `marketplace-4-build` (`.9`-`.12`) and the

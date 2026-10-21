@@ -1,5 +1,7 @@
 use crate::{
-    models::marketplace::{validate_base_record, validate_entity_id, validate_pubky},
+    models::marketplace::{
+        validate_base_record, validate_entity_id, validate_hex_hash, validate_pubky,
+    },
     traits::{HasIdPath, HashId, Validatable},
     APP_PATH, PUBLIC_PATH,
 };
@@ -83,8 +85,10 @@ impl PubkyAppReviewRatings {
 /// `/pub/pubky.app/marketplace/v1/reviews/FPB0AM9S93Q3M1GFY1KV09GMQM`
 ///
 /// Where review_id is
-/// Crockford-base32(Blake3("{reviewed_listing_uri}:{subject_pubky}:{role}")[:half])
-/// and must match the record's `reviewId` field.
+/// Crockford-base32(Blake3("{reviewed_listing_uri}:{subject_pubky}:{role}:{order_ref}")[:half])
+/// and must match the record's `reviewId` field. A record without `orderRef`
+/// (written before per-order reviews) keeps the three-part
+/// `"{reviewed_listing_uri}:{subject_pubky}:{role}"` input.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -127,9 +131,22 @@ pub struct PubkyAppMarketplaceReview {
     /// Opaque proof that the reviewer is eligible to review this trade.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub eligibility_attestation: String,
+    /// The attested order's `order_ref` (the embedded attestation's claim).
+    /// Part of the hash ID, so each attested order gets its own review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
+    pub order_ref: Option<String>,
 }
 
 impl PubkyAppMarketplaceReview {
+    /// True when the record carries `orderRef`, so its ID is per attested order.
+    /// When a scoped record and a legacy one (no `orderRef`) carry attestations
+    /// with the same `(iss, order_ref)` and the same role, the scoped record
+    /// counts and the legacy one is left out of counts, averages and lists.
+    pub fn is_order_scoped(&self) -> bool {
+        self.order_ref.is_some()
+    }
+
     /// Creates a new `PubkyAppMarketplaceReview` instance and sanitizes it.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -161,6 +178,7 @@ impl PubkyAppMarketplaceReview {
             ratings,
             text,
             eligibility_attestation,
+            order_ref: None,
         }
         .sanitize()
     }
@@ -211,16 +229,21 @@ impl HasIdPath for PubkyAppMarketplaceReview {
 
 impl HashId for PubkyAppMarketplaceReview {
     /// Review ID is created based on the hash of the reviewed listing URI,
-    /// the reviewed subject, and the review role.
+    /// the reviewed subject, the review role and, when present, the attested
+    /// order's `order_ref`.
     fn get_id_data(&self) -> String {
         let listing_uri =
             crate::listing_uri_builder(self.listing_owner_pubky.clone(), self.listing_id.clone());
-        format!(
+        let base = format!(
             "{}:{}:{}",
             listing_uri,
             self.subject_pubky,
             self.role.as_str()
-        )
+        );
+        match &self.order_ref {
+            Some(order_ref) => format!("{base}:{order_ref}"),
+            None => base,
+        }
     }
 }
 
@@ -254,6 +277,9 @@ impl Validatable for PubkyAppMarketplaceReview {
         validate_pubky(&self.subject_pubky, "subjectPubky")?;
         validate_pubky(&self.listing_owner_pubky, "listingOwnerPubky")?;
         validate_entity_id(&self.listing_id, "listingId")?;
+        if let Some(order_ref) = &self.order_ref {
+            validate_hex_hash(order_ref, "orderRef")?;
+        }
 
         self.ratings.validate()?;
 
@@ -329,6 +355,44 @@ mod tests {
         let mut other_listing = valid_review();
         other_listing.listing_id = "0032SSN7Q4EVH".to_string();
         assert_ne!(review.create_id(), other_listing.create_id());
+    }
+
+    #[test]
+    fn test_order_ref_gives_each_order_its_own_id() {
+        let legacy = valid_review();
+        let mut first = valid_review();
+        first.order_ref = Some("1".repeat(64));
+        let mut second = valid_review();
+        second.order_ref = Some("2".repeat(64));
+
+        assert_ne!(first.create_id(), legacy.create_id());
+        assert_ne!(first.create_id(), second.create_id());
+
+        first.review_id = first.create_id();
+        let id = first.review_id.clone();
+        assert!(first.validate(Some(&id)).is_ok());
+        // The ID binds the order: a record moved to another order's path fails.
+        assert!(first.validate(Some(&second.create_id())).is_err());
+    }
+
+    #[test]
+    fn test_record_without_order_ref_keeps_its_legacy_id() {
+        let review = valid_review();
+        let json = serde_json::to_string(&review).unwrap();
+        assert!(!json.contains("orderRef"));
+        let id = review.review_id.clone();
+        let parsed =
+            <PubkyAppMarketplaceReview as Validatable>::try_from(json.as_bytes(), &id).unwrap();
+        assert_eq!(parsed.order_ref, None);
+    }
+
+    #[test]
+    fn test_order_ref_must_be_a_hex_hash() {
+        let mut review = valid_review();
+        review.order_ref = Some("not-a-hash".to_string());
+        review.review_id = review.create_id();
+        let id = review.review_id.clone();
+        assert!(review.validate(Some(&id)).is_err());
     }
 
     #[test]
