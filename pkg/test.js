@@ -993,15 +993,21 @@ describe("PubkySpecs Example Objects Tests", () => {
     });
 
     it("should weigh reviews by the attested price decade", () => {
-      assert.strictEqual(priceDecade("USD", 999), "USD:2");
-      assert.strictEqual(priceDecade("SAT", 100000n), "SAT:5");
-      assert.strictEqual(priceDecade("USD", 0), undefined);
-      assert.throws(() => priceDecade("USD", 1.5));
+      assert.strictEqual(priceDecade("USD", 2, 999), "USD:2");
+      assert.strictEqual(priceDecade("SAT", 0, 100000n), "SAT:5");
+      assert.strictEqual(priceDecade("BTC", 8, 25000), "BTC:4");
+      assert.strictEqual(priceDecade("BTC", 0, 1), "BTC:8");
+      assert.strictEqual(priceDecade("JPY", 0, 4500), "JPY:3");
+      assert.strictEqual(priceDecade("USD", 2, 0), undefined);
+      assert.throws(() => priceDecade("USD", 2, 1.5));
 
       assert.strictEqual(priceWeight("USD:2"), 1);
       assert.strictEqual(priceWeight("USD:3"), 2);
       assert.strictEqual(priceWeight("EUR:6"), 5);
       assert.strictEqual(priceWeight("SAT:5"), 3);
+      assert.strictEqual(priceWeight("BTC:5"), 3);
+      assert.strictEqual(priceWeight("JPY:3"), 2);
+      assert.strictEqual(priceWeight("CAD:3"), 2);
       assert.strictEqual(priceWeight("XYZ:9"), 1);
       assert.strictEqual(priceWeight(undefined), 1);
       assert.strictEqual(priceWeight(null), 1);

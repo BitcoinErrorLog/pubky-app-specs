@@ -96,8 +96,10 @@ pub struct PubkyAppPurchaseAttestationClaims {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount_band: Option<String>,
     /// Log decade of the attested line's unit price paid,
-    /// `{CURRENCY}:{floor(log10(minor))}`; the review's price weight. Absent
-    /// on attestations issued before it existed, which weigh 1.
+    /// `{CURRENCY}:{floor(log10(price))}` with the listing's currency code,
+    /// counted in the price weight table's minor unit (satoshis for `BTC`;
+    /// see [`crate::price_decade`]); the review's price weight. Absent on
+    /// attestations issued before it existed, which weigh 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_decade: Option<String>,
     /// Issuance time, seconds since the UNIX epoch.

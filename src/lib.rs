@@ -42,8 +42,8 @@ pub use models::marketplace_review::{
     PubkyAppSellerRatingKey,
 };
 pub use models::marketplace_weight::{
-    price_decade, price_weight, price_weight_decade_offset, MAX_PRICE_WEIGHT, MIN_PRICE_WEIGHT,
-    PRICE_WEIGHT_DECADE_OFFSETS,
+    price_decade, price_weight, price_weight_currency, price_weight_decade_offset,
+    PriceWeightCurrency, MAX_PRICE_WEIGHT, MIN_PRICE_WEIGHT, PRICE_WEIGHT_CURRENCIES,
 };
 pub use models::mute::PubkyAppMute;
 pub use models::order_receipt::{

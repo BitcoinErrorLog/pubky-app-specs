@@ -702,17 +702,24 @@ pub fn price_weight_js(price_decade: Option<String>) -> Result<u8, String> {
     price_weight(price_decade.as_deref())
 }
 
-/// The `price_decade` claim value for a unit price of `unitPriceMinor`
-/// minor units of `currency` (a safe-integer number or a BigInt), e.g.
-/// `"USD:3"`; `undefined` for a non-positive price.
+/// The `price_decade` claim value for a listing unit price: `currency`,
+/// `exponent` and `unitPriceMinor` (a safe-integer number or a BigInt) as
+/// the listing writes them, e.g. `priceDecade("BTC", 8, 25000)` ->
+/// `"BTC:4"`. Table currencies are decaded in the table's minor unit
+/// (satoshis for BTC). `undefined` when there is no decade to sign.
 #[wasm_bindgen(js_name = priceDecade)]
 pub fn price_decade_js(
     currency: &str,
+    exponent: u32,
     unit_price_minor: JsValue,
 ) -> Result<Option<String>, String> {
     let unit_price_minor: i64 = from_value(unit_price_minor)
         .map_err(|_| "Validation Error: unitPriceMinor must be an integer".to_string())?;
-    Ok(price_decade(currency, unit_price_minor))
+    Ok(price_decade(
+        currency,
+        i64::from(exponent),
+        unit_price_minor,
+    ))
 }
 
 /// Parses and structurally validates a compact JWS order receipt

@@ -87,20 +87,25 @@ Point the app's dependency at it directly:
   binds the record. A `.14` record keeps its key: it is the item review of
   the listing its attestation names.
 - **`price_decade` claim.** The purchase attestation gains an optional
-  `price_decade` claim, `"{CURRENCY}:{k}"` with
-  `k = floor(log10(unit price paid in minor units))` (the `amount_band`
-  encoding), on every per-item attestation. Claims stay `v: 1` and
+  `price_decade` claim, `"{CURRENCY}:{k}"` (the `amount_band` encoding),
+  on every per-item attestation. `CURRENCY` is the listing's own code and
+  `k = floor(log10(unit price paid))` counted in the price weight table's
+  minor unit for that currency (satoshis for `BTC`). Claims stay `v: 1` and
   attestations without it stay valid. The claim set is closed-world, so
   verifiers must run `.15` before the issuer adds the claim.
 - **Price weight.** New `marketplace_weight.rs`: `price_weight(price_decade)`
-  maps the claim to a 1–5 weight by US-cent decade from a static table
-  (`USD`, `EUR`, `GBP`, `CHF` offset 0; `SAT` −1); a missing claim or an
-  unknown currency weighs 1. `price_decade(currency, unit_price_minor)` is
-  the issuer's encoding, and `src/test_fixtures/price-weight-vectors.json`
-  holds shared vectors for issuers and indexers.
+  maps the claim to a 1–5 weight by US-cent decade from a static table of
+  every currency the stack prices in: `USD`, `EUR`, `GBP`, `CHF`, `CAD`,
+  `AUD` (cents) and `JPY` (yen) at offset 0, `BTC` (satoshis, exponent 8)
+  and `SAT` at −1. A missing claim or an unknown currency weighs 1.
+  `price_decade(currency, exponent, unit_price_minor)` is the issuer's
+  encoding: listing validation does not pin an exponent per currency, so a
+  price at another exponent is shifted to the table's minor unit. The shared
+  vectors for issuers and indexers are in
+  `src/test_fixtures/price-weight-vectors.json`.
 - **Wasm.** `itemCountKey(review)`, `sellerRatingKey(review)` (both run the
   full attestation check first), `priceWeight(priceDecade)` and
-  `priceDecade(currency, unitPriceMinor)`.
+  `priceDecade(currency, exponent, unitPriceMinor)`.
 
 ## Changes in `.14`
 

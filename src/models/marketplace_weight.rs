@@ -3,13 +3,18 @@
 //! "weighted by purchase value" rating and the "highest-value purchases
 //! first" sort.
 //!
-//! The attestation's `price_decade` claim is `"{CURRENCY}:{k}"` with
-//! `k = floor(log10(unit price paid in minor units))`, the encoding of
-//! `amount_band`. The weight is `w = clamp(k + offset(CURRENCY) - 1, 1, 5)`,
-//! where the offset turns the currency's minor-unit decade into a US-cent
-//! decade: under $10 weighs 1, $10-99 weighs 2, $100-999 weighs 3,
-//! $1,000-9,999 weighs 4 and $10,000 or more weighs 5. An attestation
-//! without the claim, or with a currency the table lacks, weighs 1.
+//! The attestation's `price_decade` claim is `"{CURRENCY}:{k}"`, the
+//! encoding of `amount_band`, where `CURRENCY` is the listing's own currency
+//! code and `k = floor(log10(unit price paid))` counted in that currency's
+//! table minor unit ([`PRICE_WEIGHT_CURRENCIES`]): cents for USD, yen for
+//! JPY, satoshis for BTC. A price written at another exponent shifts `k` by
+//! the exponent difference, so `BTC` is always decaded in sats.
+//!
+//! The weight is `w = clamp(k + offset(CURRENCY) - 1, 1, 5)`, where the
+//! offset turns the table minor unit's decade into a US-cent decade: under
+//! $10 weighs 1, $10-99 weighs 2, $100-999 weighs 3, $1,000-9,999 weighs 4
+//! and $10,000 or more weighs 5. An attestation without the claim, or with a
+//! currency the table lacks, weighs 1.
 
 /// Lowest price weight; also the weight of a missing claim or an unknown
 /// currency.
@@ -20,36 +25,112 @@ pub const MAX_PRICE_WEIGHT: u8 = 5;
 /// i64 minor units cap a decade at 18.
 const MAX_DECADE_MAGNITUDE: u32 = 18;
 
-/// US-cent decade offset per currency code, for decades of that currency's
-/// minor unit. The table is static and normative: every indexer and
-/// recompute tool derives the same weight from the same claim, so it does
-/// not follow exchange rates.
+/// A currency the price weight table knows: its minor unit (`exponent`
+/// decimal places below the major unit) and the decade offset from that
+/// minor unit to a US cent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PriceWeightCurrency {
+    pub code: &'static str,
+    pub exponent: i64,
+    pub decade_offset: i32,
+}
+
+/// Every currency the stack prices in. The table is static and normative:
+/// every indexer and recompute tool derives the same weight from the same
+/// claim, so it does not follow exchange rates.
 ///
-/// - `USD`, `EUR`, `GBP`, `CHF` (exponent 2): one minor unit is within a
-///   decade of one US cent, offset 0.
-/// - `SAT` (exponent 0): one satoshi is (BTC/USD) / 10^6 US cents, offset -1,
-///   the nearest decade while one bitcoin trades between about $31,600 and
-///   $316,000.
-pub const PRICE_WEIGHT_DECADE_OFFSETS: &[(&str, i32)] =
-    &[("USD", 0), ("EUR", 0), ("GBP", 0), ("CHF", 0), ("SAT", -1)];
+/// - `USD`, `EUR`, `GBP`, `CHF`, `CAD`, `AUD` (cents, exponent 2): one minor
+///   unit is within a decade of one US cent, offset 0.
+/// - `JPY` (yen, exponent 0): one yen is about 0.65 US cents, offset 0.
+/// - `BTC` (satoshis, exponent 8) and `SAT` (satoshis, exponent 0, the
+///   `amount_band` code): one satoshi is (BTC/USD) / 10^6 US cents, offset
+///   -1, the nearest decade while one bitcoin trades between about $31,600
+///   and $316,000.
+pub const PRICE_WEIGHT_CURRENCIES: &[PriceWeightCurrency] = &[
+    PriceWeightCurrency {
+        code: "USD",
+        exponent: 2,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "EUR",
+        exponent: 2,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "GBP",
+        exponent: 2,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "CHF",
+        exponent: 2,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "CAD",
+        exponent: 2,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "AUD",
+        exponent: 2,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "JPY",
+        exponent: 0,
+        decade_offset: 0,
+    },
+    PriceWeightCurrency {
+        code: "BTC",
+        exponent: 8,
+        decade_offset: -1,
+    },
+    PriceWeightCurrency {
+        code: "SAT",
+        exponent: 0,
+        decade_offset: -1,
+    },
+];
+
+/// The table entry for `currency`, or `None` when the table has no entry.
+pub fn price_weight_currency(currency: &str) -> Option<&'static PriceWeightCurrency> {
+    PRICE_WEIGHT_CURRENCIES
+        .iter()
+        .find(|entry| entry.code == currency)
+}
 
 /// The decade offset of `currency`, or `None` when the table has no entry.
 pub fn price_weight_decade_offset(currency: &str) -> Option<i32> {
-    PRICE_WEIGHT_DECADE_OFFSETS
-        .iter()
-        .find(|(code, _)| *code == currency)
-        .map(|(_, offset)| *offset)
+    price_weight_currency(currency).map(|entry| entry.decade_offset)
 }
 
 /// The `price_decade` claim value an issuer writes for a unit price of
-/// `unit_price_minor` minor units of `currency`, e.g. `("USD", 4_999)` ->
-/// `"USD:3"`. `None` for a non-positive price: there is no decade to sign,
-/// so the claim is left out and the review weighs 1.
-pub fn price_decade(currency: &str, unit_price_minor: i64) -> Option<String> {
+/// `unit_price_minor` at `exponent` decimal places of `currency` (a listing
+/// price's `amountMinor`, `exponent` and `currency`), e.g.
+/// `("USD", 2, 4_999)` -> `"USD:3"` and `("BTC", 8, 25_000)` -> `"BTC:4"`.
+///
+/// For a table currency the decade counts the table's minor unit: a price at
+/// another exponent shifts it by `table exponent - exponent` (exact, since
+/// it scales by a power of ten), so `("BTC", 0, 1)`, one whole bitcoin, is
+/// `"BTC:8"`. A currency outside the table keeps the decade of its own minor
+/// units (it weighs 1 either way). Decades above 18 are written as 18.
+///
+/// `None` when there is no decade to sign: a non-positive price, or one
+/// below a single table minor unit (such as a fraction of a satoshi). The
+/// claim is then left out and the review weighs 1.
+pub fn price_decade(currency: &str, exponent: i64, unit_price_minor: i64) -> Option<String> {
     if unit_price_minor < 1 {
         return None;
     }
-    Some(format!("{currency}:{}", unit_price_minor.ilog10()))
+    let shift = price_weight_currency(currency).map_or(0, |entry| entry.exponent - exponent);
+    let decade = i64::from(unit_price_minor.ilog10()) + shift;
+    if decade < 0 {
+        return None;
+    }
+    let decade = decade.min(i64::from(MAX_DECADE_MAGNITUDE));
+    Some(format!("{currency}:{decade}"))
 }
 
 /// The price weight of a review whose attestation carries `price_decade`
@@ -98,6 +179,7 @@ mod tests {
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Vector {
         currency: String,
+        exponent: i64,
         unit_price_minor: i64,
         price_decade: Option<String>,
         weight: u8,
@@ -111,48 +193,56 @@ mod tests {
         vectors: Vec<Vector>,
     }
 
+    fn weight_of(currency: &str, exponent: i64, unit_price_minor: i64) -> u8 {
+        price_weight(price_decade(currency, exponent, unit_price_minor).as_deref()).unwrap()
+    }
+
     #[test]
     fn test_shared_vectors() {
         let fixture: Vectors =
             serde_json::from_str(include_str!("../test_fixtures/price-weight-vectors.json"))
                 .expect("vector fixture parses");
-        assert!(!fixture.vectors.is_empty());
-        for vector in fixture.vectors {
-            let decade = price_decade(&vector.currency, vector.unit_price_minor);
-            assert_eq!(
-                decade, vector.price_decade,
-                "{} {}",
-                vector.currency, vector.unit_price_minor
+        for currency in [
+            "USD", "EUR", "GBP", "CHF", "CAD", "AUD", "JPY", "BTC", "SAT",
+        ] {
+            assert!(
+                fixture.vectors.iter().any(|v| v.currency == currency),
+                "no vector for {currency}"
             );
+        }
+        for vector in fixture.vectors {
+            let label = format!(
+                "{} {} at exponent {}",
+                vector.currency, vector.unit_price_minor, vector.exponent
+            );
+            let decade = price_decade(&vector.currency, vector.exponent, vector.unit_price_minor);
+            assert_eq!(decade, vector.price_decade, "{label}");
             assert_eq!(
                 price_weight(decade.as_deref()),
                 Ok(vector.weight),
-                "{} {}",
-                vector.currency,
-                vector.unit_price_minor
+                "{label}"
             );
         }
     }
 
     #[test]
-    fn test_us_cent_decade_edges() {
-        for currency in ["USD", "EUR", "GBP", "CHF"] {
+    fn test_cent_decade_edges() {
+        for currency in ["USD", "EUR", "GBP", "CHF", "CAD", "AUD"] {
             for (unit_price_minor, weight) in [
                 (1, 1),
-                (999, 1),       // $9.99
-                (1_000, 2),     // $10.00
-                (9_999, 2),     // $99.99
-                (10_000, 3),    // $100.00
-                (99_999, 3),    // $999.99
-                (100_000, 4),   // $1,000.00
-                (999_999, 4),   // $9,999.99
-                (1_000_000, 5), // $10,000.00
+                (999, 1),       // 9.99
+                (1_000, 2),     // 10.00
+                (9_999, 2),     // 99.99
+                (10_000, 3),    // 100.00
+                (99_999, 3),    // 999.99
+                (100_000, 4),   // 1,000.00
+                (999_999, 4),   // 9,999.99
+                (1_000_000, 5), // 10,000.00
                 (i64::MAX, 5),  // clamped
             ] {
-                let decade = price_decade(currency, unit_price_minor);
                 assert_eq!(
-                    price_weight(decade.as_deref()),
-                    Ok(weight),
+                    weight_of(currency, 2, unit_price_minor),
+                    weight,
                     "{currency} {unit_price_minor}"
                 );
             }
@@ -160,8 +250,24 @@ mod tests {
     }
 
     #[test]
-    fn test_sat_decade_edges() {
-        for (unit_price_minor, weight) in [
+    fn test_yen_decade_edges() {
+        for (yen, weight) in [
+            (1, 1),
+            (999, 1),
+            (1_000, 2),
+            (9_999, 2),
+            (10_000, 3),
+            (100_000, 4),
+            (1_000_000, 5),
+        ] {
+            assert_eq!(weight_of("JPY", 0, yen), weight, "JPY {yen}");
+        }
+        assert_eq!(price_decade("JPY", 0, 4_500).as_deref(), Some("JPY:3"));
+    }
+
+    #[test]
+    fn test_satoshi_decade_edges() {
+        for (sats, weight) in [
             (1, 1),
             (9_999, 1),
             (10_000, 2),
@@ -173,13 +279,29 @@ mod tests {
             (10_000_000, 5),
             (2_100_000_000_000_000, 5),
         ] {
-            let decade = price_decade("SAT", unit_price_minor);
-            assert_eq!(
-                price_weight(decade.as_deref()),
-                Ok(weight),
-                "SAT {unit_price_minor}"
-            );
+            assert_eq!(weight_of("BTC", 8, sats), weight, "BTC {sats}");
+            assert_eq!(weight_of("SAT", 0, sats), weight, "SAT {sats}");
         }
+        assert_eq!(price_decade("BTC", 8, 25_000).as_deref(), Some("BTC:4"));
+        assert_eq!(price_decade("SAT", 0, 25_000).as_deref(), Some("SAT:4"));
+    }
+
+    #[test]
+    fn test_other_exponents_decade_in_the_table_unit() {
+        // One whole bitcoin, written at exponent 0, is 10^8 sats.
+        assert_eq!(price_decade("BTC", 0, 1).as_deref(), Some("BTC:8"));
+        // 1,000 millisats (exponent 11) is one sat.
+        assert_eq!(price_decade("BTC", 11, 1_000).as_deref(), Some("BTC:0"));
+        // Below one sat there is no decade to sign.
+        assert_eq!(price_decade("BTC", 11, 999), None);
+        // $10.000 at exponent 3 is 1,000 cents.
+        assert_eq!(price_decade("USD", 3, 10_000).as_deref(), Some("USD:3"));
+        // 450 yen written at exponent 2 is still 450 yen.
+        assert_eq!(price_decade("JPY", 2, 45_000).as_deref(), Some("JPY:2"));
+        // Decades above 18 are written as 18.
+        assert_eq!(price_decade("BTC", 0, i64::MAX).as_deref(), Some("BTC:18"));
+        // A currency outside the table keeps its own minor-unit decade.
+        assert_eq!(price_decade("XYZ", 5, 1_000).as_deref(), Some("XYZ:3"));
     }
 
     #[test]
@@ -202,17 +324,34 @@ mod tests {
 
     #[test]
     fn test_non_positive_price_has_no_decade() {
-        assert_eq!(price_decade("USD", 0), None);
-        assert_eq!(price_decade("USD", -1_000), None);
+        assert_eq!(price_decade("USD", 2, 0), None);
+        assert_eq!(price_decade("USD", 2, -1_000), None);
     }
 
     #[test]
-    fn test_offset_table() {
-        assert_eq!(price_weight_decade_offset("USD"), Some(0));
-        assert_eq!(price_weight_decade_offset("EUR"), Some(0));
-        assert_eq!(price_weight_decade_offset("GBP"), Some(0));
-        assert_eq!(price_weight_decade_offset("CHF"), Some(0));
-        assert_eq!(price_weight_decade_offset("SAT"), Some(-1));
-        assert_eq!(PRICE_WEIGHT_DECADE_OFFSETS.len(), 5);
+    fn test_currency_table() {
+        let expected = [
+            ("USD", 2, 0),
+            ("EUR", 2, 0),
+            ("GBP", 2, 0),
+            ("CHF", 2, 0),
+            ("CAD", 2, 0),
+            ("AUD", 2, 0),
+            ("JPY", 0, 0),
+            ("BTC", 8, -1),
+            ("SAT", 0, -1),
+        ];
+        assert_eq!(PRICE_WEIGHT_CURRENCIES.len(), expected.len());
+        for (code, exponent, decade_offset) in expected {
+            assert_eq!(
+                price_weight_currency(code),
+                Some(&PriceWeightCurrency {
+                    code,
+                    exponent,
+                    decade_offset
+                }),
+                "{code}"
+            );
+        }
     }
 }
