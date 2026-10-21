@@ -1,4 +1,4 @@
-import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, itemCountKey, sellerRatingKey, priceWeight, getValidMimeTypes } from "./index.js";
+import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, itemCountKey, sellerRatingKey, priceWeight, priceDecade, parsePurchaseAttestation, getValidMimeTypes } from "./index.js";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
@@ -931,7 +931,7 @@ describe("PubkySpecs Example Objects Tests", () => {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const iss = zbase32(Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url"));
 
-    const attestedReview = (listingId, text) => {
+    const attestedReview = (listingId, text, priceDecadeClaim) => {
       const claims = {
         v: 1,
         iss,
@@ -942,6 +942,7 @@ describe("PubkySpecs Example Objects Tests", () => {
         order_ref: ORDER_REF,
         completed_on: "2026-10-20",
         iat: 1792454400,
+        ...(priceDecadeClaim === undefined ? {} : { price_decade: priceDecadeClaim }),
       };
       const header = b64u(JSON.stringify({ alg: "EdDSA", typ: "pubky-purchase-attestation+v1" }));
       const payload = b64u(JSON.stringify(claims));
@@ -991,14 +992,31 @@ describe("PubkySpecs Example Objects Tests", () => {
       assert.throws(() => sellerRatingKey(review));
     });
 
-    it("should weigh prices by US-cent decade", () => {
-      assert.strictEqual(priceWeight("USD", 999), 1);
-      assert.strictEqual(priceWeight("USD", 1000), 2);
-      assert.strictEqual(priceWeight("EUR", 1000000), 5);
-      assert.strictEqual(priceWeight("SAT", 100000), 3);
-      assert.strictEqual(priceWeight("SAT", 100000n), 3);
-      assert.strictEqual(priceWeight("XYZ", 1000000), 1);
-      assert.throws(() => priceWeight("USD", 1.5));
+    it("should weigh reviews by the attested price decade", () => {
+      assert.strictEqual(priceDecade("USD", 999), "USD:2");
+      assert.strictEqual(priceDecade("SAT", 100000n), "SAT:5");
+      assert.strictEqual(priceDecade("USD", 0), undefined);
+      assert.throws(() => priceDecade("USD", 1.5));
+
+      assert.strictEqual(priceWeight("USD:2"), 1);
+      assert.strictEqual(priceWeight("USD:3"), 2);
+      assert.strictEqual(priceWeight("EUR:6"), 5);
+      assert.strictEqual(priceWeight("SAT:5"), 3);
+      assert.strictEqual(priceWeight("XYZ:9"), 1);
+      assert.strictEqual(priceWeight(undefined), 1);
+      assert.strictEqual(priceWeight(null), 1);
+      assert.throws(() => priceWeight("usd:3"));
+    });
+
+    it("should carry the price_decade claim through attestation parsing", () => {
+      const review = attestedReview(ITEM_A, "", "USD:4");
+      const claims = parsePurchaseAttestation(review.eligibilityAttestation);
+      assert.strictEqual(claims.price_decade, "USD:4");
+      assert.strictEqual(priceWeight(claims.price_decade), 3);
+
+      const legacy = parsePurchaseAttestation(attestedReview(ITEM_A, "").eligibilityAttestation);
+      assert.strictEqual(legacy.price_decade, undefined);
+      assert.strictEqual(priceWeight(legacy.price_decade), 1);
     });
   });
 

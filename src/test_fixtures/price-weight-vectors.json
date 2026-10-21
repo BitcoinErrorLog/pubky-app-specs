@@ -1,0 +1,197 @@
+{
+  "description": "Shared price weight vectors (Pubky Market counting rules v2). For each line item the issuer signs priceDecade = price_decade(currency, unitPriceMinor) as the purchase attestation's price_decade claim (null: claim omitted), and every verifier derives weight = price_weight(priceDecade). An attestation without the claim weighs 1.",
+  "vectors": [
+    {
+      "currency": "USD",
+      "unitPriceMinor": 1,
+      "priceDecade": "USD:0",
+      "weight": 1
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 999,
+      "priceDecade": "USD:2",
+      "weight": 1
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 1000,
+      "priceDecade": "USD:3",
+      "weight": 2
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 9999,
+      "priceDecade": "USD:3",
+      "weight": 2
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 10000,
+      "priceDecade": "USD:4",
+      "weight": 3
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 99999,
+      "priceDecade": "USD:4",
+      "weight": 3
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 100000,
+      "priceDecade": "USD:5",
+      "weight": 4
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 999999,
+      "priceDecade": "USD:5",
+      "weight": 4
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 1000000,
+      "priceDecade": "USD:6",
+      "weight": 5
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 250000000,
+      "priceDecade": "USD:8",
+      "weight": 5
+    },
+    {
+      "currency": "EUR",
+      "unitPriceMinor": 999,
+      "priceDecade": "EUR:2",
+      "weight": 1
+    },
+    {
+      "currency": "EUR",
+      "unitPriceMinor": 1000,
+      "priceDecade": "EUR:3",
+      "weight": 2
+    },
+    {
+      "currency": "EUR",
+      "unitPriceMinor": 1000000,
+      "priceDecade": "EUR:6",
+      "weight": 5
+    },
+    {
+      "currency": "GBP",
+      "unitPriceMinor": 999,
+      "priceDecade": "GBP:2",
+      "weight": 1
+    },
+    {
+      "currency": "GBP",
+      "unitPriceMinor": 1000,
+      "priceDecade": "GBP:3",
+      "weight": 2
+    },
+    {
+      "currency": "GBP",
+      "unitPriceMinor": 1000000,
+      "priceDecade": "GBP:6",
+      "weight": 5
+    },
+    {
+      "currency": "CHF",
+      "unitPriceMinor": 999,
+      "priceDecade": "CHF:2",
+      "weight": 1
+    },
+    {
+      "currency": "CHF",
+      "unitPriceMinor": 1000,
+      "priceDecade": "CHF:3",
+      "weight": 2
+    },
+    {
+      "currency": "CHF",
+      "unitPriceMinor": 1000000,
+      "priceDecade": "CHF:6",
+      "weight": 5
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 1,
+      "priceDecade": "SAT:0",
+      "weight": 1
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 9999,
+      "priceDecade": "SAT:3",
+      "weight": 1
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 10000,
+      "priceDecade": "SAT:4",
+      "weight": 2
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 99999,
+      "priceDecade": "SAT:4",
+      "weight": 2
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 100000,
+      "priceDecade": "SAT:5",
+      "weight": 3
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 999999,
+      "priceDecade": "SAT:5",
+      "weight": 3
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 1000000,
+      "priceDecade": "SAT:6",
+      "weight": 4
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 9999999,
+      "priceDecade": "SAT:6",
+      "weight": 4
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 10000000,
+      "priceDecade": "SAT:7",
+      "weight": 5
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 2100000000000000,
+      "priceDecade": "SAT:15",
+      "weight": 5
+    },
+    {
+      "currency": "USD",
+      "unitPriceMinor": 0,
+      "priceDecade": null,
+      "weight": 1
+    },
+    {
+      "currency": "SAT",
+      "unitPriceMinor": 0,
+      "priceDecade": null,
+      "weight": 1
+    },
+    {
+      "currency": "XYZ",
+      "unitPriceMinor": 1000000,
+      "priceDecade": "XYZ:6",
+      "weight": 1
+    }
+  ]
+}

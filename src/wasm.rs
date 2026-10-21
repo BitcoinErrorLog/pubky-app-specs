@@ -694,14 +694,25 @@ pub fn seller_rating_key(review: JsValue) -> Result<String, String> {
     Ok(review.seller_rating_key(&attestation)?.to_string())
 }
 
-/// The 1-5 price weight of a purchase priced `priceMinor` minor units of
-/// `currency` (a safe-integer number or a BigInt). Unknown currencies and
-/// non-positive prices weigh 1.
+/// The 1-5 price weight of a review from its attestation's `price_decade`
+/// claim (`"{CURRENCY}:{k}"`); a missing claim (`undefined` or `null`) or an
+/// unknown currency weighs 1, and a malformed value throws.
 #[wasm_bindgen(js_name = priceWeight)]
-pub fn price_weight_js(currency: &str, price_minor: JsValue) -> Result<u8, String> {
-    let price_minor: i64 = from_value(price_minor)
-        .map_err(|_| "Validation Error: priceMinor must be an integer".to_string())?;
-    Ok(price_weight(currency, price_minor))
+pub fn price_weight_js(price_decade: Option<String>) -> Result<u8, String> {
+    price_weight(price_decade.as_deref())
+}
+
+/// The `price_decade` claim value for a unit price of `unitPriceMinor`
+/// minor units of `currency` (a safe-integer number or a BigInt), e.g.
+/// `"USD:3"`; `undefined` for a non-positive price.
+#[wasm_bindgen(js_name = priceDecade)]
+pub fn price_decade_js(
+    currency: &str,
+    unit_price_minor: JsValue,
+) -> Result<Option<String>, String> {
+    let unit_price_minor: i64 = from_value(unit_price_minor)
+        .map_err(|_| "Validation Error: unitPriceMinor must be an integer".to_string())?;
+    Ok(price_decade(currency, unit_price_minor))
 }
 
 /// Parses and structurally validates a compact JWS order receipt

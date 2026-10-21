@@ -86,12 +86,21 @@ Point the app's dependency at it directly:
   `communication` count once per order. Both check that the attestation
   binds the record. A `.14` record keeps its key: it is the item review of
   the listing its attestation names.
-- **Price weight.** New `marketplace_weight.rs`: `price_weight(currency,
-  price_minor)` maps a price to a 1–5 weight by US-cent decade from a static
-  table (`USD`, `EUR`, `GBP`, `CHF` offset 0; `SAT` −1). Unknown currencies
-  weigh 1.
+- **`price_decade` claim.** The purchase attestation gains an optional
+  `price_decade` claim, `"{CURRENCY}:{k}"` with
+  `k = floor(log10(unit price paid in minor units))` (the `amount_band`
+  encoding), on every per-item attestation. Claims stay `v: 1` and
+  attestations without it stay valid. The claim set is closed-world, so
+  verifiers must run `.15` before the issuer adds the claim.
+- **Price weight.** New `marketplace_weight.rs`: `price_weight(price_decade)`
+  maps the claim to a 1–5 weight by US-cent decade from a static table
+  (`USD`, `EUR`, `GBP`, `CHF` offset 0; `SAT` −1); a missing claim or an
+  unknown currency weighs 1. `price_decade(currency, unit_price_minor)` is
+  the issuer's encoding, and `src/test_fixtures/price-weight-vectors.json`
+  holds shared vectors for issuers and indexers.
 - **Wasm.** `itemCountKey(review)`, `sellerRatingKey(review)` (both run the
-  full attestation check first) and `priceWeight(currency, priceMinor)`.
+  full attestation check first), `priceWeight(priceDecade)` and
+  `priceDecade(currency, unitPriceMinor)`.
 
 ## Changes in `.14`
 
