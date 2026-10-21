@@ -29,6 +29,7 @@ use crate::{
     listing_uri_builder,
     models::marketplace::{validate_hex_hash, validate_pubky, MAX_SAFE_INTEGER},
     models::marketplace_review::PubkyAppMarketplaceReview,
+    models::marketplace_weight::{parse_log_decade, price_weight, MIN_PRICE_WEIGHT},
     traits::Validatable,
     uri::{ParsedUri, Resource},
 };
@@ -66,8 +67,10 @@ struct AttestationHeader {
 /// Privacy constraints inherited from the marketplace redaction rules:
 /// `completed_on` is day-granularity, `order_ref` is an attestor-salted hash
 /// (nobody but the attestor can link it back to an order), and
-/// `amount_band` is an optional log-decade band emitted only under
-/// both-sides consent — never exact amounts, addresses, or payment IDs.
+/// `amount_band` is an optional log-decade band of the order total emitted
+/// only under both-sides consent, and `price_decade` the log decade of the
+/// line's unit price, which the public listing price already discloses —
+/// never exact amounts, addresses, or payment IDs.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -92,6 +95,13 @@ pub struct PubkyAppPurchaseAttestationClaims {
     /// Optional log-decade amount band, `{CURRENCY}:{floor(log10(minor))}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount_band: Option<String>,
+    /// Log decade of the attested line's unit price paid,
+    /// `{CURRENCY}:{floor(log10(price))}` with the listing's currency code,
+    /// counted in the price weight table's minor unit (satoshis for `BTC`;
+    /// see [`crate::price_decade`]); the review's price weight. Absent on
+    /// attestations issued before it existed, which weigh 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_decade: Option<String>,
     /// Issuance time, seconds since the UNIX epoch.
     pub iat: i64,
 }
@@ -226,6 +236,13 @@ impl PubkyAppPurchaseAttestation {
         (self.claims.iss.clone(), self.claims.order_ref.clone())
     }
 
+    /// The review's 1-5 price weight from the `price_decade` claim; 1 when
+    /// the claim is absent or names a currency without a decade offset.
+    /// [`Self::parse`] has already rejected a malformed claim.
+    pub fn price_weight(&self) -> u8 {
+        price_weight(self.claims.price_decade.as_deref()).unwrap_or(MIN_PRICE_WEIGHT)
+    }
+
     /// The full local verification recipe for one review record: parse the
     /// record's embedded attestation, verify the signature, and check the
     /// bindings. Trust in `iss` remains the caller's policy decision.
@@ -260,7 +277,10 @@ fn validate_claims(claims: &PubkyAppPurchaseAttestationClaims) -> Result<(), Str
     validate_hex_hash(&claims.order_ref, "order_ref").map_err(attestation_error)?;
     validate_civil_date(&claims.completed_on)?;
     if let Some(band) = &claims.amount_band {
-        validate_amount_band(band)?;
+        parse_log_decade(band, "amount_band").map_err(attestation_error)?;
+    }
+    if let Some(decade) = &claims.price_decade {
+        parse_log_decade(decade, "price_decade").map_err(attestation_error)?;
     }
     if !(1..=MAX_SAFE_INTEGER).contains(&claims.iat) {
         return Err("Attestation Error: iat must be a positive safe integer".into());
@@ -304,28 +324,6 @@ fn validate_civil_date(value: &str) -> Result<(), String> {
         return Err(error);
     }
     Ok(())
-}
-
-/// Validates a `{CURRENCY}:{magnitude}` log-decade amount band, e.g.
-/// `SAT:5` for an order in the 100,000–999,999 sat decade.
-fn validate_amount_band(value: &str) -> Result<(), String> {
-    let error =
-        "Attestation Error: amount_band must be {CURRENCY}:{magnitude}, e.g. SAT:5".to_string();
-    let (currency, magnitude) = value.split_once(':').ok_or_else(|| error.clone())?;
-    let currency_length = currency.chars().count();
-    if !(3..=12).contains(&currency_length) {
-        return Err(error);
-    }
-    let mut chars = currency.chars();
-    let first_is_upper = chars.next().is_some_and(|c| c.is_ascii_uppercase());
-    if !first_is_upper || !chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
-        return Err(error);
-    }
-    // i64 minor units cap the decade at 18.
-    match magnitude.parse::<u32>() {
-        Ok(m) if magnitude.len() <= 2 && m <= 18 => Ok(()),
-        _ => Err(error),
-    }
 }
 
 /// Decodes unpadded base64url (RFC 4648 §5). Padding characters and
@@ -449,6 +447,7 @@ mod tests {
             order_ref: "a".repeat(64),
             completed_on: "2026-08-21".to_string(),
             amount_band: Some("SAT:5".to_string()),
+            price_decade: None,
             iat: 1_787_654_321,
         }
     }
@@ -550,6 +549,128 @@ mod tests {
         );
         assert!(scoped.is_order_scoped());
         assert!(!legacy.is_order_scoped());
+    }
+
+    fn review_of_listing(listing_id: &str, attestation: &str) -> PubkyAppMarketplaceReview {
+        let mut review = matching_review(attestation);
+        review.listing_id = listing_id.to_string();
+        review.order_ref = Some("a".repeat(64));
+        review.review_id = review.create_id();
+        review
+    }
+
+    #[test]
+    fn test_item_keys_differ_across_listings_of_one_order() {
+        let key = attestor_key();
+        let iss = attestor_pubky(&key);
+        let item_a = "0032SSN7Q4EVG";
+        let item_b = "0032SSN7Q4EVH";
+
+        let mut claims_b = valid_claims(&iss);
+        claims_b.listing = crate::listing_uri_builder(SELLER.to_string(), item_b.to_string());
+        let review_a = review_of_listing(item_a, &sign(&valid_claims(&iss), &key));
+        let review_b = review_of_listing(item_b, &sign(&claims_b, &key));
+
+        let attestation_a = PubkyAppPurchaseAttestation::verify_for_review(&review_a).unwrap();
+        let attestation_b = PubkyAppPurchaseAttestation::verify_for_review(&review_b).unwrap();
+
+        let item_key_a = review_a.item_count_key(&attestation_a).unwrap();
+        let item_key_b = review_b.item_count_key(&attestation_b).unwrap();
+        assert_ne!(item_key_a, item_key_b);
+        assert_ne!(review_a.review_id, review_b.review_id);
+
+        let seller_key_a = review_a.seller_rating_key(&attestation_a).unwrap();
+        let seller_key_b = review_b.seller_rating_key(&attestation_b).unwrap();
+        assert_eq!(seller_key_a, seller_key_b);
+        assert_eq!(seller_key_a, item_key_a.seller_rating_key());
+
+        assert_eq!(
+            item_key_a.to_string(),
+            format!(
+                "{iss}:{}:buyer_reviewing_seller:{SELLER}:{item_a}",
+                "a".repeat(64)
+            )
+        );
+        assert_eq!(
+            seller_key_a.to_string(),
+            format!("{iss}:{}:buyer_reviewing_seller", "a".repeat(64))
+        );
+    }
+
+    #[test]
+    fn test_legacy_record_shares_its_item_key_with_a_scoped_twin() {
+        let key = attestor_key();
+        let jws = sign(&valid_claims(&attestor_pubky(&key)), &key);
+        let legacy = matching_review(&jws);
+        let scoped = review_of_listing(&legacy.listing_id, &jws);
+
+        let legacy_attestation = PubkyAppPurchaseAttestation::verify_for_review(&legacy).unwrap();
+        let scoped_attestation = PubkyAppPurchaseAttestation::verify_for_review(&scoped).unwrap();
+        assert_eq!(
+            legacy.item_count_key(&legacy_attestation).unwrap(),
+            scoped.item_count_key(&scoped_attestation).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_count_keys_require_a_binding_attestation() {
+        let key = attestor_key();
+        let iss = attestor_pubky(&key);
+        let mut other_listing = valid_claims(&iss);
+        other_listing.listing =
+            crate::listing_uri_builder(SELLER.to_string(), "0032SSN7Q4EVH".to_string());
+        let attestation = PubkyAppPurchaseAttestation::parse(&sign(&other_listing, &key)).unwrap();
+
+        let review = review_of_listing("0032SSN7Q4EVG", &sign(&valid_claims(&iss), &key));
+        assert!(review.item_count_key(&attestation).is_err());
+        assert!(review.seller_rating_key(&attestation).is_err());
+    }
+
+    #[test]
+    fn test_price_decade_claim_sets_the_weight() {
+        let key = attestor_key();
+        let mut claims = valid_claims(&attestor_pubky(&key));
+        claims.price_decade = Some("USD:4".to_string());
+        let jws = sign(&claims, &key);
+        let review = matching_review(&jws);
+
+        let attestation = PubkyAppPurchaseAttestation::verify_for_review(&review).unwrap();
+        assert_eq!(attestation.claims.price_decade.as_deref(), Some("USD:4"));
+        assert_eq!(attestation.price_weight(), 3);
+
+        claims.price_decade = Some("XYZ:9".to_string());
+        let attestation = PubkyAppPurchaseAttestation::parse(&sign(&claims, &key)).unwrap();
+        assert_eq!(attestation.price_weight(), 1);
+    }
+
+    #[test]
+    fn test_attestation_without_price_decade_still_verifies() {
+        let key = attestor_key();
+        let claims = valid_claims(&attestor_pubky(&key));
+        let jws = sign(&claims, &key);
+        let payload = serde_json::to_value(&claims).unwrap();
+        assert!(payload.get("price_decade").is_none());
+
+        let attestation =
+            PubkyAppPurchaseAttestation::verify_for_review(&matching_review(&jws)).unwrap();
+        assert_eq!(attestation.claims.price_decade, None);
+        assert_eq!(attestation.price_weight(), 1);
+    }
+
+    #[test]
+    fn test_malformed_price_decade_rejected() {
+        let key = attestor_key();
+        let iss = attestor_pubky(&key);
+        for value in ["usd:3", "USD", "USD:19", "US:3", "USD:3.0", ""] {
+            let mut claims = valid_claims(&iss);
+            claims.price_decade = Some(value.to_string());
+            assert!(validate_claims(&claims).is_err(), "{value:?}");
+            let error = PubkyAppPurchaseAttestation::parse(&sign(&claims, &key)).unwrap_err();
+            assert!(
+                error.starts_with("Attestation Error: price_decade"),
+                "{error}"
+            );
+        }
     }
 
     #[test]

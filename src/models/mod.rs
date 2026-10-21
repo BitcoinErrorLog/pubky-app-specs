@@ -12,6 +12,7 @@ pub mod listing;
 pub mod marketplace;
 pub mod marketplace_attestation;
 pub mod marketplace_review;
+pub mod marketplace_weight;
 pub mod mute;
 pub mod order_receipt;
 pub mod order_receipt_attestation;

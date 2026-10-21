@@ -1,4 +1,4 @@
-import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, getValidMimeTypes } from "./index.js";
+import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, itemCountKey, sellerRatingKey, priceWeight, priceDecade, parsePurchaseAttestation, getValidMimeTypes } from "./index.js";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
@@ -902,6 +902,127 @@ describe("PubkySpecs Example Objects Tests", () => {
 
       // Structurally invalid compact form.
       assert.throws(() => parseDropEditionAttestation("not.a.jws"));
+    });
+  });
+
+  describe("Marketplace review counting keys and price weight", () => {
+    const ORDER_REF = "c".repeat(64);
+    const ITEM_A = "0032SSN7Q4EVG";
+    const ITEM_B = "0032SSN7Q4EVH";
+
+    // z-base-32 encoding of raw bytes (the pubky encoding of Ed25519 keys).
+    const zbase32 = (bytes) => {
+      const alphabet = "ybndrfg8ejkmcpqxot1uwisza345h769";
+      let bits = 0, accumulator = 0, out = "";
+      for (const byte of bytes) {
+        accumulator = (accumulator << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+          bits -= 5;
+          out += alphabet[(accumulator >> bits) & 31];
+        }
+      }
+      if (bits > 0) out += alphabet[(accumulator << (5 - bits)) & 31];
+      return out;
+    };
+
+    const b64u = (data) => Buffer.from(data).toString("base64url");
+
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const iss = zbase32(Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url"));
+
+    const attestedReview = (listingId, text, priceDecadeClaim) => {
+      const claims = {
+        v: 1,
+        iss,
+        sub: OTTO,
+        cpk: RIO,
+        role: "buyer_reviewing_seller",
+        listing: `pubky://${RIO}/pub/pubky.app/marketplace/v1/listings/${listingId}`,
+        order_ref: ORDER_REF,
+        completed_on: "2026-10-20",
+        iat: 1792454400,
+        ...(priceDecadeClaim === undefined ? {} : { price_decade: priceDecadeClaim }),
+      };
+      const header = b64u(JSON.stringify({ alg: "EdDSA", typ: "pubky-purchase-attestation+v1" }));
+      const payload = b64u(JSON.stringify(claims));
+      const signature = cryptoSign(null, Buffer.from(`${header}.${payload}`), privateKey);
+      const { marketplace_review } = specsBuilder.createMarketplaceReview({
+        schemaVersion: 1,
+        recordType: "review",
+        ownerPubky: OTTO,
+        revision: 1,
+        createdAt: "2026-10-20T10:00:00Z",
+        updatedAt: "2026-10-20T10:00:00Z",
+        reviewId: "",
+        subjectPubky: RIO,
+        listingOwnerPubky: RIO,
+        listingId,
+        role: "buyer_reviewing_seller",
+        ratings: { overall: 5, shipping: 4, communication: 5 },
+        text,
+        eligibilityAttestation: `${header}.${payload}.${b64u(signature)}`,
+        orderRef: ORDER_REF,
+      });
+      return marketplace_review.toJson();
+    };
+
+    it("should accept a review with empty text", () => {
+      const review = attestedReview(ITEM_A, "");
+      assert.strictEqual(review.text, "");
+    });
+
+    it("should key items of one order apart and share the seller key", () => {
+      const reviewA = attestedReview(ITEM_A, "Great boots.");
+      const reviewB = attestedReview(ITEM_B, "");
+
+      assert.strictEqual(
+        itemCountKey(reviewA),
+        `${iss}:${ORDER_REF}:buyer_reviewing_seller:${RIO}:${ITEM_A}`
+      );
+      assert.notStrictEqual(itemCountKey(reviewA), itemCountKey(reviewB));
+      assert.strictEqual(sellerRatingKey(reviewA), `${iss}:${ORDER_REF}:buyer_reviewing_seller`);
+      assert.strictEqual(sellerRatingKey(reviewA), sellerRatingKey(reviewB));
+    });
+
+    it("should refuse to key a review whose attestation does not verify", () => {
+      const review = attestedReview(ITEM_A, "");
+      review.listingId = ITEM_B;
+      assert.throws(() => itemCountKey(review));
+      assert.throws(() => sellerRatingKey(review));
+    });
+
+    it("should weigh reviews by the attested price decade", () => {
+      assert.strictEqual(priceDecade("USD", 2, 999), "USD:2");
+      assert.strictEqual(priceDecade("SAT", 0, 100000n), "SAT:5");
+      assert.strictEqual(priceDecade("BTC", 8, 25000), "BTC:4");
+      assert.strictEqual(priceDecade("BTC", 0, 1), "BTC:8");
+      assert.strictEqual(priceDecade("JPY", 0, 4500), "JPY:3");
+      assert.strictEqual(priceDecade("USD", 2, 0), undefined);
+      assert.throws(() => priceDecade("USD", 2, 1.5));
+
+      assert.strictEqual(priceWeight("USD:2"), 1);
+      assert.strictEqual(priceWeight("USD:3"), 2);
+      assert.strictEqual(priceWeight("EUR:6"), 5);
+      assert.strictEqual(priceWeight("SAT:5"), 3);
+      assert.strictEqual(priceWeight("BTC:5"), 3);
+      assert.strictEqual(priceWeight("JPY:3"), 2);
+      assert.strictEqual(priceWeight("CAD:3"), 2);
+      assert.strictEqual(priceWeight("XYZ:9"), 1);
+      assert.strictEqual(priceWeight(undefined), 1);
+      assert.strictEqual(priceWeight(null), 1);
+      assert.throws(() => priceWeight("usd:3"));
+    });
+
+    it("should carry the price_decade claim through attestation parsing", () => {
+      const review = attestedReview(ITEM_A, "", "USD:4");
+      const claims = parsePurchaseAttestation(review.eligibilityAttestation);
+      assert.strictEqual(claims.price_decade, "USD:4");
+      assert.strictEqual(priceWeight(claims.price_decade), 3);
+
+      const legacy = parsePurchaseAttestation(attestedReview(ITEM_A, "").eligibilityAttestation);
+      assert.strictEqual(legacy.price_decade, undefined);
+      assert.strictEqual(priceWeight(legacy.price_decade), 1);
     });
   });
 
