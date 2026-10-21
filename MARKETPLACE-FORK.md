@@ -17,7 +17,7 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.15` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.16` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
   Subsequent fork builds increment the final number (`-marketplace.5`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
@@ -57,7 +57,7 @@ cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.15.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.16.tgz
 ```
 
 Note: run the wasm/npm bundle from a worktree on the local disk — building
