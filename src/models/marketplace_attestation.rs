@@ -210,10 +210,20 @@ impl PubkyAppPurchaseAttestation {
         }
         if let Some(order_ref) = &review.order_ref {
             if &self.claims.order_ref != order_ref {
-                return Err("Attestation Error: order_ref does not match the review orderRef".into());
+                return Err(
+                    "Attestation Error: order_ref does not match the review orderRef".into(),
+                );
             }
         }
         Ok(())
+    }
+
+    /// The attested order this attestation stands for: `(iss, order_ref)`.
+    /// A verified review counts once per attested order and review role;
+    /// see [`PubkyAppMarketplaceReview::is_order_scoped`] for which record
+    /// counts when two carry the same key.
+    pub fn order_key(&self) -> (String, String) {
+        (self.claims.iss.clone(), self.claims.order_ref.clone())
     }
 
     /// The full local verification recipe for one review record: parse the
@@ -510,6 +520,36 @@ mod tests {
         review.review_id = review.create_id();
         let error = PubkyAppPurchaseAttestation::verify_for_review(&review).unwrap_err();
         assert!(error.contains("order_ref"), "{error}");
+    }
+
+    #[test]
+    fn test_legacy_and_scoped_records_share_one_order_key() {
+        let key = attestor_key();
+        let claims = valid_claims(&attestor_pubky(&key));
+        let jws = sign(&claims, &key);
+
+        let legacy = matching_review(&jws);
+        let mut scoped = matching_review(&jws);
+        scoped.order_ref = Some(claims.order_ref.clone());
+        scoped.review_id = scoped.create_id();
+
+        // Both records verify at their own paths, so a consumer must dedupe them.
+        let legacy_attestation = PubkyAppPurchaseAttestation::verify_for_review(&legacy).unwrap();
+        let scoped_attestation = PubkyAppPurchaseAttestation::verify_for_review(&scoped).unwrap();
+        assert!(legacy.validate(Some(&legacy.review_id.clone())).is_ok());
+        assert!(scoped.validate(Some(&scoped.review_id.clone())).is_ok());
+        assert_ne!(legacy.review_id, scoped.review_id);
+
+        assert_eq!(
+            legacy_attestation.order_key(),
+            scoped_attestation.order_key()
+        );
+        assert_eq!(
+            scoped_attestation.order_key(),
+            (claims.iss.clone(), claims.order_ref.clone())
+        );
+        assert!(scoped.is_order_scoped());
+        assert!(!legacy.is_order_scoped());
     }
 
     #[test]

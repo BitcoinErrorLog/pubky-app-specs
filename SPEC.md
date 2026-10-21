@@ -466,6 +466,7 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 
 - The `review_id` is a **Hash ID** derived from `"{listing_uri}:{subject_pubky}:{role}:{orderRef}"`, where `listing_uri` is `pubky://<listingOwnerPubky>/pub/pubky.app/marketplace/v1/listings/<listingId>`. Each attested order therefore gets its own review, and a second order of the same listing never overwrites the first.
 - A record without `orderRef` (written before per-order reviews) keeps the three-part input `"{listing_uri}:{subject_pubky}:{role}"` and stays valid.
+- **Counting rule.** A verified review counts once per attested order: key it by the attestation's `(iss, order_ref)` and the record's `role`. When a record with `orderRef` and one without it carry the same key, the record with `orderRef` counts; the other is left out of counts, averages and review lists. Implementations can use `PubkyAppPurchaseAttestation::order_key()` and `PubkyAppMarketplaceReview::is_order_scoped()`.
 
 ---
 

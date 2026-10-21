@@ -83,6 +83,13 @@ Point the app's dependency at it directly:
   The attestation binding check requires `order_ref == orderRef`. Records
   without `orderRef` keep the three-part ID and stay valid, so nothing
   already published needs migrating.
+- **One count per attested order.** A record with `orderRef` and a legacy one
+  can embed the same attestation, and both verify at their own paths. A
+  verified review therefore counts once per `(iss, order_ref)` and role: the
+  record with `orderRef` counts, the legacy one is left out of counts,
+  averages and lists. Helpers: `PubkyAppPurchaseAttestation::order_key()`
+  returns `(iss, order_ref)`, `PubkyAppMarketplaceReview::is_order_scoped()`
+  tells the two apart.
 
 ## Changes in `.13`
 

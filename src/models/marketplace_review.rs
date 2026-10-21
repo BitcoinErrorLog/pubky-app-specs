@@ -139,6 +139,14 @@ pub struct PubkyAppMarketplaceReview {
 }
 
 impl PubkyAppMarketplaceReview {
+    /// True when the record carries `orderRef`, so its ID is per attested order.
+    /// When a scoped record and a legacy one (no `orderRef`) carry attestations
+    /// with the same `(iss, order_ref)` and the same role, the scoped record
+    /// counts and the legacy one is left out of counts, averages and lists.
+    pub fn is_order_scoped(&self) -> bool {
+        self.order_ref.is_some()
+    }
+
     /// Creates a new `PubkyAppMarketplaceReview` instance and sanitizes it.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -226,7 +234,12 @@ impl HashId for PubkyAppMarketplaceReview {
     fn get_id_data(&self) -> String {
         let listing_uri =
             crate::listing_uri_builder(self.listing_owner_pubky.clone(), self.listing_id.clone());
-        let base = format!("{}:{}:{}", listing_uri, self.subject_pubky, self.role.as_str());
+        let base = format!(
+            "{}:{}:{}",
+            listing_uri,
+            self.subject_pubky,
+            self.role.as_str()
+        );
         match &self.order_ref {
             Some(order_ref) => format!("{base}:{order_ref}"),
             None => base,
