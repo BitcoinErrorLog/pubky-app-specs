@@ -295,35 +295,42 @@ pub(crate) fn attestation_error(validation_error: String) -> String {
 /// Validates a `YYYY-MM-DD` civil date (day granularity, deliberately no
 /// time component — finer timestamps would strengthen payment correlation).
 fn validate_civil_date(value: &str) -> Result<(), String> {
-    let error = "Attestation Error: completed_on must be a YYYY-MM-DD date".to_string();
+    if is_civil_date(value) {
+        Ok(())
+    } else {
+        Err("Attestation Error: completed_on must be a YYYY-MM-DD date".to_string())
+    }
+}
+
+/// True for a real `YYYY-MM-DD` calendar date.
+pub(crate) fn is_civil_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return Err(error);
+        return false;
     }
-    let digits = |range: std::ops::Range<usize>| -> Result<i64, String> {
+    let digits = |range: std::ops::Range<usize>| -> Option<i64> {
         let slice = &bytes[range];
         if !slice.iter().all(u8::is_ascii_digit) {
-            return Err(error.clone());
+            return None;
         }
-        Ok(slice
-            .iter()
-            .fold(0i64, |acc, b| acc * 10 + i64::from(b - b'0')))
+        Some(
+            slice
+                .iter()
+                .fold(0i64, |acc, b| acc * 10 + i64::from(b - b'0')),
+        )
     };
-    let year = digits(0..4)?;
-    let month = digits(5..7)?;
-    let day = digits(8..10)?;
+    let (Some(year), Some(month), Some(day)) = (digits(0..4), digits(5..7), digits(8..10)) else {
+        return false;
+    };
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let days_in_month = match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
         2 if leap => 29,
         2 => 28,
-        _ => return Err(error),
+        _ => return false,
     };
-    if !(1..=days_in_month).contains(&day) {
-        return Err(error);
-    }
-    Ok(())
+    (1..=days_in_month).contains(&day)
 }
 
 /// Decodes unpadded base64url (RFC 4648 §5). Padding characters and

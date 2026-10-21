@@ -1,7 +1,7 @@
-import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, itemCountKey, sellerRatingKey, priceWeight, priceDecade, parsePurchaseAttestation, getValidMimeTypes } from "./index.js";
+import { PubkyAppPost, PubkyAppPostKind, PubkySpecsBuilder, PubkyAppPostEmbed, PubkyAppWatchlist, PubkyAppMarketplaceOrderReceipt, PubkyAppMarketplaceDrop, postUriBuilder, bookmarkUriBuilder, followUriBuilder, userUriBuilder, watchlistUriBuilder, orderReceiptUriBuilder, dropUriBuilder, parseOrderReceiptAttestation, verifyOrderReceiptAttestation, parseDropEditionAttestation, verifyDropEditionAttestation, itemCountKey, sellerRatingKey, priceWeight, priceDecade, parsePurchaseAttestation, verifyAttestorProfile, verifyAttestorAnnotation, attestorProfileUriBuilder, attestorAnnotationUriBuilder, parse_uri, getValidMimeTypes } from "./index.js";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+import { createPrivateKey, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import assert from "assert";
 
 const require = createRequire(import.meta.url);
@@ -1023,6 +1023,90 @@ describe("PubkySpecs Example Objects Tests", () => {
       const legacy = parsePurchaseAttestation(attestedReview(ITEM_A, "").eligibilityAttestation);
       assert.strictEqual(legacy.price_decade, undefined);
       assert.strictEqual(priceWeight(legacy.price_decade), 1);
+    });
+  });
+
+  describe("Attestor profile and annotation records", () => {
+    const vectors = JSON.parse(
+      readFileSync(new URL("../src/test_fixtures/attestor-records-v1.json", import.meta.url), "utf8")
+    );
+    const b64u = (data) => Buffer.from(data).toString("base64url");
+
+    // RFC 8785 for the integer-only JSON the records use: members sorted by
+    // UTF-16 code units, which is how JavaScript compares strings.
+    const canonicalize = (value) => {
+      if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+      if (value !== null && typeof value === "object") {
+        const keys = Object.keys(value).sort();
+        return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`;
+      }
+      return JSON.stringify(value);
+    };
+
+    const attestorKey = createPrivateKey({
+      key: Buffer.concat([
+        Buffer.from("302e020100300506032b657004220420", "hex"),
+        Buffer.from(vectors.attestorSecretKeyHex, "hex"),
+      ]),
+      format: "der",
+      type: "pkcs8",
+    });
+
+    for (const [name, typ] of [
+      ["profile", "pubky-attestor-profile+v1"],
+      ["annotation", "pubky-attestor-annotation+v1"],
+    ]) {
+      it(`should reproduce the ${name} vector independently`, () => {
+        const vector = vectors[name];
+        const { proof, ...body } = vector.record;
+        assert.strictEqual(proof, vector.proof);
+        assert.strictEqual(canonicalize(body), vector.canonicalBody);
+
+        const header = b64u(JSON.stringify({ alg: "EdDSA", typ }));
+        const signature = cryptoSign(
+          null,
+          Buffer.from(`${header}.${b64u(vector.canonicalBody)}`),
+          attestorKey
+        );
+        assert.strictEqual(`${header}..${b64u(signature)}`, vector.proof);
+      });
+    }
+
+    it("should build and parse attestor URIs", () => {
+      assert.strictEqual(attestorProfileUriBuilder(vectors.attestorPubky), vectors.profile.uri);
+      const orderRef = vectors.annotation.record.orderRef;
+      assert.strictEqual(
+        attestorAnnotationUriBuilder(vectors.attestorPubky, orderRef),
+        vectors.annotation.uri
+      );
+      const parsed = parse_uri(vectors.annotation.uri);
+      assert.strictEqual(parsed.resource, "marketplace/v1/attestor/annotations");
+      assert.strictEqual(parsed.resource_id, orderRef);
+      assert.strictEqual(parse_uri(vectors.profile.uri).resource, "marketplace/v1/attestor/profile");
+    });
+
+    it("should verify the vector records", () => {
+      const profile = verifyAttestorProfile(vectors.profile.uri, JSON.stringify(vectors.profile.record));
+      assert.strictEqual(profile.operator.name, "Pubky Market");
+      assert.strictEqual(profile.issuancePolicy.priceDecade, "always");
+
+      const annotation = verifyAttestorAnnotation(
+        vectors.annotation.uri,
+        JSON.stringify(vectors.annotation.record, null, 2)
+      );
+      assert.strictEqual(annotation.revision, 2);
+      assert.deepStrictEqual(annotation.outcomes.map((o) => o.kind), ["returned", "refunded"]);
+    });
+
+    it("should reject a wrong owner, a wrong path or a tampered body", () => {
+      const record = JSON.stringify(vectors.annotation.record);
+      const otherOwner = vectors.annotation.uri.replace(vectors.attestorPubky, OTTO);
+      assert.throws(() => verifyAttestorAnnotation(otherOwner, record));
+      const otherPath = vectors.annotation.uri.replace(/[0-9a-f]{64}$/, "a".repeat(64));
+      assert.throws(() => verifyAttestorAnnotation(otherPath, record));
+      assert.throws(() => verifyAttestorProfile(vectors.profile.uri, record));
+      const tampered = { ...vectors.annotation.record, revision: 3 };
+      assert.throws(() => verifyAttestorAnnotation(vectors.annotation.uri, JSON.stringify(tampered)));
     });
   });
 

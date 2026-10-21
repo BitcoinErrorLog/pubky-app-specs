@@ -37,6 +37,12 @@ pub use models::marketplace_attestation::{
     base64url_encode, PubkyAppPurchaseAttestation, PubkyAppPurchaseAttestationClaims,
     PURCHASE_ATTESTATION_TYP, PURCHASE_ATTESTATION_VERSION,
 };
+pub use models::marketplace_attestor::{
+    PubkyAppAttestorAnnotation, PubkyAppAttestorIssuancePolicy, PubkyAppAttestorKey,
+    PubkyAppAttestorOperator, PubkyAppAttestorOutcome, PubkyAppAttestorOutcomeKind,
+    PubkyAppAttestorProfile, AMOUNT_BAND_POLICY_BOTH_SIDES_CONSENT, ATTESTOR_ANNOTATION_TYP,
+    ATTESTOR_PROFILE_TYP, PRICE_DECADE_POLICY_ALWAYS,
+};
 pub use models::marketplace_review::{
     PubkyAppItemCountKey, PubkyAppMarketplaceReview, PubkyAppReviewRatings, PubkyAppReviewRole,
     PubkyAppSellerRatingKey,
@@ -71,12 +77,12 @@ pub use models::PubkyAppObject;
 pub use types::PubkyId;
 #[doc(inline)]
 pub use uri::{
-    base_uri_builder, blob_uri_builder, bookmark_uri_builder, drop_uri_builder, feed_uri_builder,
-    file_uri_builder, follow_uri_builder, is_pubky_scheme, last_read_uri_builder,
-    listing_uri_builder, marketplace_review_uri_builder, mute_uri_builder,
-    order_receipt_uri_builder, post_uri_builder, review_response_uri_builder, shop_uri_builder,
-    tag_uri_builder, try_parse_pubky_path, user_uri_builder, watchlist_uri_builder,
-    ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
+    attestor_annotation_uri_builder, attestor_profile_uri_builder, base_uri_builder,
+    blob_uri_builder, bookmark_uri_builder, drop_uri_builder, feed_uri_builder, file_uri_builder,
+    follow_uri_builder, is_pubky_scheme, last_read_uri_builder, listing_uri_builder,
+    marketplace_review_uri_builder, mute_uri_builder, order_receipt_uri_builder, post_uri_builder,
+    review_response_uri_builder, shop_uri_builder, tag_uri_builder, try_parse_pubky_path,
+    user_uri_builder, watchlist_uri_builder, ExtendedParsedUri, ParsedUri, PubkyPath, Resource,
 };
 
 // Our WASM module

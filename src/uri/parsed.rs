@@ -1,9 +1,10 @@
 use crate::{
     traits::{HasIdPath, HasPath},
-    PubkyAppBlob, PubkyAppBookmark, PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead,
-    PubkyAppListing, PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute,
-    PubkyAppPost, PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId,
-    APP_PATH, MARKETPLACE_PATH, PROTOCOL,
+    PubkyAppAttestorAnnotation, PubkyAppAttestorProfile, PubkyAppBlob, PubkyAppBookmark,
+    PubkyAppFeed, PubkyAppFile, PubkyAppFollow, PubkyAppLastRead, PubkyAppListing,
+    PubkyAppMarketplaceDrop, PubkyAppMarketplaceReview, PubkyAppMute, PubkyAppPost,
+    PubkyAppReviewResponse, PubkyAppShop, PubkyAppTag, PubkyAppUser, PubkyId, APP_PATH,
+    MARKETPLACE_PATH, PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -36,6 +37,8 @@ impl ParsedUri {
             Resource::Drop(id) => PubkyAppMarketplaceDrop::create_path(id),
             Resource::MarketplaceReview(id) => PubkyAppMarketplaceReview::create_path(id),
             Resource::ReviewResponse(id) => PubkyAppReviewResponse::create_path(id),
+            Resource::AttestorProfile => PubkyAppAttestorProfile::create_path(),
+            Resource::AttestorAnnotation(id) => PubkyAppAttestorAnnotation::create_path(id),
             Resource::Unknown => return Err("Cannot convert Unknown resource to URI".to_string()),
         };
 
@@ -79,6 +82,20 @@ fn resource_from_segments(segments: &[String]) -> Result<Resource, String> {
             if format!("{marketplace}/{version}/{segment}") == PubkyAppShop::PATH_SEGMENT =>
         {
             Ok(Resource::Shop)
+        }
+        // Attestor records live one level deeper, under `marketplace/v1/attestor/`.
+        [marketplace, version, attestor, segment]
+            if format!("{marketplace}/{version}/{attestor}/{segment}")
+                == PubkyAppAttestorProfile::PATH_SEGMENT =>
+        {
+            Ok(Resource::AttestorProfile)
+        }
+        [marketplace, version, attestor, collection, id]
+            if format!("{marketplace}/{version}/{attestor}/{collection}/")
+                == PubkyAppAttestorAnnotation::PATH_SEGMENT
+                && !id.is_empty() =>
+        {
+            Ok(Resource::AttestorAnnotation(id.clone()))
         }
         [marketplace, version, res_type, id, ..]
             if format!("{marketplace}/{version}/") == MARKETPLACE_PATH && !id.is_empty() =>

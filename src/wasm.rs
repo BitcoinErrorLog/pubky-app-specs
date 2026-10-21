@@ -777,6 +777,27 @@ pub fn verify_drop_edition_attestation(receipt: JsValue) -> Result<JsValue, Stri
     to_value(&attestation.claims).map_err(|e| e.to_string())
 }
 
+/// Verifies an attestor profile fetched from `uri` (its raw JSON text):
+/// the URI must be an attestor profile path and the `proof` must verify
+/// against the URI's owner over the canonical body. Returns the record as a
+/// plain object. Whether the attestor is trusted remains the caller's
+/// policy decision; a profile may only narrow that trust.
+#[wasm_bindgen(js_name = verifyAttestorProfile)]
+pub fn verify_attestor_profile(uri: &str, json: &str) -> Result<JsValue, String> {
+    let profile = PubkyAppAttestorProfile::from_verified_json(uri, json.as_bytes())?;
+    to_value(&profile).map_err(|e| e.to_string())
+}
+
+/// Verifies an attestor annotation fetched from `uri` (its raw JSON text):
+/// the URI must be an attestor annotation path, the `proof` must verify
+/// against the URI's owner, and `orderRef` must equal the path ID. Returns
+/// the record as a plain object.
+#[wasm_bindgen(js_name = verifyAttestorAnnotation)]
+pub fn verify_attestor_annotation(uri: &str, json: &str) -> Result<JsValue, String> {
+    let annotation = PubkyAppAttestorAnnotation::from_verified_json(uri, json.as_bytes())?;
+    to_value(&annotation).map_err(|e| e.to_string())
+}
+
 /// This object represents the result of parsing a Pubky URI. It contains:
 /// - `user_id`: the parsed user ID as a string.
 /// - `resource`: a string representing the kind of resource (derived from internal `Resource` enum Display).
