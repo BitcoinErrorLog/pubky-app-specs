@@ -458,7 +458,7 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 | `listingId`              | String   | Reviewed listing identifier.           | Required. Path-safe identifier, 1–128 characters.                                 |
 | `role`                   | String   | Review direction.                      | Required. `buyer_reviewing_seller` or `seller_reviewing_buyer`.                   |
 | `ratings`                | Object   | Star ratings.                          | Required. `overall` 1–5; optional `itemAccuracy`, `shipping`, `communication` 1–5. |
-| `text`                   | String   | Review text.                           | Required. Trimmed. Length: 1–5000 characters.                                     |
+| `text`                   | String   | Review text.                           | Optional; a missing member reads as `""`. Trimmed. Length: 0–5000 characters.     |
 | `eligibilityAttestation` | String   | Proof of review eligibility.           | Required. 32–4096 characters of `[A-Za-z0-9._~-]`.                                |
 | `orderRef`               | String   | The attested order's `order_ref`.      | Optional. Lowercase 64-character BLAKE3 hex hash. Must equal the attestation's `order_ref` claim. |
 
@@ -466,7 +466,10 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 
 - The `review_id` is a **Hash ID** derived from `"{listing_uri}:{subject_pubky}:{role}:{orderRef}"`, where `listing_uri` is `pubky://<listingOwnerPubky>/pub/pubky.app/marketplace/v1/listings/<listingId>`. Each attested order therefore gets its own review, and a second order of the same listing never overwrites the first.
 - A record without `orderRef` (written before per-order reviews) keeps the three-part input `"{listing_uri}:{subject_pubky}:{role}"` and stays valid.
-- **Counting rule.** A verified review counts once per attested order: key it by the attestation's `(iss, order_ref)` and the record's `role`. When a record with `orderRef` and one without it carry the same key, the record with `orderRef` counts; the other is left out of counts, averages and review lists. Implementations can use `PubkyAppPurchaseAttestation::order_key()` and `PubkyAppMarketplaceReview::is_order_scoped()`.
+- **Item counting key.** A verified review counts once per attested order, role and reviewed listing: `item_count_key = (iss, order_ref, role, listingOwnerPubky, listingId)`, with `iss` and `order_ref` taken from the attestation. Items of one order therefore count separately. When a record with `orderRef` and one without it carry the same key, the record with `orderRef` counts; the other is left out of counts, averages and review lists. Implementations can use `PubkyAppMarketplaceReview::item_count_key()` (wasm `itemCountKey`) and `PubkyAppMarketplaceReview::is_order_scoped()`.
+- **Seller rating key.** `ratings.shipping` and `ratings.communication` rate the seller for the whole order. They are written identically on every item review of the order and count once per `seller_rating_key = (iss, order_ref, role)` (`PubkyAppMarketplaceReview::seller_rating_key()`, wasm `sellerRatingKey`). When the copies differ, the record with the latest `updatedAt` wins; ties go to the lowest `reviewId`. Absent fields are skipped in averages.
+- **Key strings.** The `Display` form of both keys (and the wasm return value) joins the parts with `:`; no part can contain one.
+- **Price weight.** A counted review's weight is `price_weight(currency, price_minor)` of the reviewed listing's price: `d = floor(log10(price_minor)) + offset(currency)` and `w = clamp(d − 1, 1, 5)`. The static offsets turn the currency's minor unit into US-cent decades: `USD`, `EUR`, `GBP`, `CHF` 0; `SAT` −1. Any other currency, and any price that is not positive, weighs 1. So under $10 weighs 1, $10–99.99 weighs 2 and $10,000 or more weighs 5. Exposed as `price_weight()` (wasm `priceWeight`) and `PRICE_WEIGHT_DECADE_OFFSETS`.
 
 ---
 

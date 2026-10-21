@@ -17,7 +17,7 @@ breakage.
 
 - **Base commit**: `5caa830` — "chore: bump version to 0.6.2 (#148)", the
   upstream 0.6.2 release commit.
-- **Version**: `0.6.2-marketplace.10` (crate and npm package). The pre-release
+- **Version**: `0.6.2-marketplace.15` (crate and npm package). The pre-release
   suffix makes it unambiguous that this is a fork build derived from 0.6.2.
   Subsequent fork builds increment the final number (`-marketplace.5`, ...).
 - The npm package **name** stays `pubky-app-specs` so app imports are unchanged.
@@ -57,7 +57,7 @@ cargo clippy --all-targets --all-features
 cargo test
 cargo run --bin bundle_specs_npm   # builds the npm package into pkg/
 cd pkg && npm install && npm test
-npm pack                           # produces pubky-app-specs-0.6.2-marketplace.10.tgz
+npm pack                           # produces pubky-app-specs-0.6.2-marketplace.15.tgz
 ```
 
 Note: run the wasm/npm bundle from a worktree on the local disk — building
@@ -72,6 +72,26 @@ Point the app's dependency at it directly:
 ```json
 "pubky-app-specs": "https://github.com/BitcoinErrorLog/pubky-app-specs/releases/download/v0.6.2-marketplace.4/pubky-app-specs-0.6.2-marketplace.4.tgz"
 ```
+
+## Changes in `.15`
+
+- **Optional review text.** `PubkyAppMarketplaceReview.text` may be empty
+  (0–5,000 characters after trimming; a missing member reads as `""`).
+  Records written under `.14` stay valid. Indexers must run `.15` before
+  clients publish empty text, because `.14` rejects it.
+- **Counting keys.** `item_count_key()` returns
+  `(iss, order_ref, role, listing_owner, listing_id)`, so every item of a
+  multi-item order counts on its own; `seller_rating_key()` returns
+  `(iss, order_ref, role)`, the key under which `shipping` and
+  `communication` count once per order. Both check that the attestation
+  binds the record. A `.14` record keeps its key: it is the item review of
+  the listing its attestation names.
+- **Price weight.** New `marketplace_weight.rs`: `price_weight(currency,
+  price_minor)` maps a price to a 1–5 weight by US-cent decade from a static
+  table (`USD`, `EUR`, `GBP`, `CHF` offset 0; `SAT` −1). Unknown currencies
+  weigh 1.
+- **Wasm.** `itemCountKey(review)`, `sellerRatingKey(review)` (both run the
+  full attestation check first) and `priceWeight(currency, priceMinor)`.
 
 ## Changes in `.14`
 

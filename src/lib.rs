@@ -38,7 +38,12 @@ pub use models::marketplace_attestation::{
     PURCHASE_ATTESTATION_TYP, PURCHASE_ATTESTATION_VERSION,
 };
 pub use models::marketplace_review::{
-    PubkyAppMarketplaceReview, PubkyAppReviewRatings, PubkyAppReviewRole,
+    PubkyAppItemCountKey, PubkyAppMarketplaceReview, PubkyAppReviewRatings, PubkyAppReviewRole,
+    PubkyAppSellerRatingKey,
+};
+pub use models::marketplace_weight::{
+    price_weight, price_weight_decade_offset, MAX_PRICE_WEIGHT, MIN_PRICE_WEIGHT,
+    PRICE_WEIGHT_DECADE_OFFSETS,
 };
 pub use models::mute::PubkyAppMute;
 pub use models::order_receipt::{

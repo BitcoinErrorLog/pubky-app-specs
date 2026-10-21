@@ -673,6 +673,37 @@ pub fn verify_purchase_attestation(review: JsValue) -> Result<JsValue, String> {
     to_value(&attestation.claims).map_err(|e| e.to_string())
 }
 
+/// The item counting key of one review record, `iss:order_ref:role:listing_owner:listing_id`:
+/// runs the full verification recipe (`verifyPurchaseAttestation`) on the
+/// record (camelCase JSON) and keys it by its attested order and listing.
+/// Whether `iss` is a trusted attestor remains the caller's policy decision.
+#[wasm_bindgen(js_name = itemCountKey)]
+pub fn item_count_key(review: JsValue) -> Result<String, String> {
+    let review: PubkyAppMarketplaceReview = from_value(review).map_err(|e| e.to_string())?;
+    let attestation = PubkyAppPurchaseAttestation::verify_for_review(&review)?;
+    Ok(review.item_count_key(&attestation)?.to_string())
+}
+
+/// The seller rating key of one review record, `iss:order_ref:role`, after
+/// the same verification as `itemCountKey`. Every item review of one order
+/// shares it, so `shipping` and `communication` count once per order.
+#[wasm_bindgen(js_name = sellerRatingKey)]
+pub fn seller_rating_key(review: JsValue) -> Result<String, String> {
+    let review: PubkyAppMarketplaceReview = from_value(review).map_err(|e| e.to_string())?;
+    let attestation = PubkyAppPurchaseAttestation::verify_for_review(&review)?;
+    Ok(review.seller_rating_key(&attestation)?.to_string())
+}
+
+/// The 1-5 price weight of a purchase priced `priceMinor` minor units of
+/// `currency` (a safe-integer number or a BigInt). Unknown currencies and
+/// non-positive prices weigh 1.
+#[wasm_bindgen(js_name = priceWeight)]
+pub fn price_weight_js(currency: &str, price_minor: JsValue) -> Result<u8, String> {
+    let price_minor: i64 = from_value(price_minor)
+        .map_err(|_| "Validation Error: priceMinor must be an integer".to_string())?;
+    Ok(price_weight(currency, price_minor))
+}
+
 /// Parses and structurally validates a compact JWS order receipt
 /// attestation, returning its v1 or v2 claims as a plain JSON object with
 /// the attestation's wire-format snake_case keys (`total_minor` for v1;

@@ -2,10 +2,12 @@ use crate::{
     models::marketplace::{
         validate_base_record, validate_entity_id, validate_hex_hash, validate_pubky,
     },
+    models::marketplace_attestation::PubkyAppPurchaseAttestation,
     traits::{HasIdPath, HashId, Validatable},
     APP_PATH, PUBLIC_PATH,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[cfg(target_arch = "wasm32")]
 use crate::traits::Json;
@@ -76,6 +78,59 @@ impl PubkyAppReviewRatings {
     }
 }
 
+/// Counting key of one item review; see
+/// [`PubkyAppMarketplaceReview::item_count_key`]. Its `Display` form joins the
+/// parts with `:` (no part can contain one).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct PubkyAppItemCountKey {
+    pub iss: String,
+    pub order_ref: String,
+    pub role: String,
+    pub listing_owner: String,
+    pub listing_id: String,
+}
+
+impl PubkyAppItemCountKey {
+    /// The seller rating key of the order this item belongs to.
+    pub fn seller_rating_key(&self) -> PubkyAppSellerRatingKey {
+        PubkyAppSellerRatingKey {
+            iss: self.iss.clone(),
+            order_ref: self.order_ref.clone(),
+            role: self.role.clone(),
+        }
+    }
+}
+
+impl fmt::Display for PubkyAppItemCountKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}:{}:{}",
+            self.iss, self.order_ref, self.role, self.listing_owner, self.listing_id
+        )
+    }
+}
+
+/// Seller rating key of one order and role; see
+/// [`PubkyAppMarketplaceReview::seller_rating_key`]. Its `Display` form joins
+/// the parts with `:`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct PubkyAppSellerRatingKey {
+    pub iss: String,
+    pub order_ref: String,
+    pub role: String,
+}
+
+impl fmt::Display for PubkyAppSellerRatingKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}:{}", self.iss, self.order_ref, self.role)
+    }
+}
+
 /// Represents a marketplace review of a trade counterparty.
 ///
 /// URI: /pub/pubky.app/marketplace/v1/reviews/:review_id
@@ -126,6 +181,9 @@ pub struct PubkyAppMarketplaceReview {
     pub role: PubkyAppReviewRole,
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub ratings: PubkyAppReviewRatings,
+    /// Optional review text, 0-5000 characters after trimming. A missing
+    /// `text` member reads as empty.
+    #[serde(default)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(skip))]
     pub text: String,
     /// Opaque proof that the reviewer is eligible to review this trade.
@@ -145,6 +203,39 @@ impl PubkyAppMarketplaceReview {
     /// counts and the legacy one is left out of counts, averages and lists.
     pub fn is_order_scoped(&self) -> bool {
         self.order_ref.is_some()
+    }
+
+    /// The item counting key `(iss, order_ref, role, listing_owner, listing_id)`:
+    /// one counted review per attested order, role and reviewed listing, so
+    /// each item of a multi-item order counts on its own. `iss` and
+    /// `order_ref` come from the embedded attestation, which must bind this
+    /// record; a record without `orderRef` keys by the attestation's
+    /// `order_ref`, so it shares its key with a scoped twin of the same item.
+    /// Signature verification and trust in `iss` stay with the caller.
+    pub fn item_count_key(
+        &self,
+        attestation: &PubkyAppPurchaseAttestation,
+    ) -> Result<PubkyAppItemCountKey, String> {
+        attestation.verify_binding(self)?;
+        Ok(PubkyAppItemCountKey {
+            iss: attestation.claims.iss.clone(),
+            order_ref: attestation.claims.order_ref.clone(),
+            role: self.role.as_str().to_string(),
+            listing_owner: self.listing_owner_pubky.clone(),
+            listing_id: self.listing_id.clone(),
+        })
+    }
+
+    /// The seller rating key `(iss, order_ref, role)`: `shipping` and
+    /// `communication` are written identically on every item review of an
+    /// order and count once per key. When the copies differ, the record with
+    /// the latest `updatedAt` wins; ties go to the lowest `reviewId`.
+    pub fn seller_rating_key(
+        &self,
+        attestation: &PubkyAppPurchaseAttestation,
+    ) -> Result<PubkyAppSellerRatingKey, String> {
+        self.item_count_key(attestation)
+            .map(|key| key.seller_rating_key())
     }
 
     /// Creates a new `PubkyAppMarketplaceReview` instance and sanitizes it.
@@ -283,10 +374,9 @@ impl Validatable for PubkyAppMarketplaceReview {
 
         self.ratings.validate()?;
 
-        let text_length = self.text.chars().count();
-        if !(1..=MAX_REVIEW_TEXT_LENGTH).contains(&text_length) {
+        if self.text.chars().count() > MAX_REVIEW_TEXT_LENGTH {
             return Err(format!(
-                "Validation Error: review text must be 1-{MAX_REVIEW_TEXT_LENGTH} characters"
+                "Validation Error: review text must be 0-{MAX_REVIEW_TEXT_LENGTH} characters"
             ));
         }
 
@@ -460,18 +550,76 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_empty_text_after_trim() {
+    fn test_validate_empty_text() {
+        let mut review = valid_review();
+        review.text = String::new();
+        assert!(review.validate(None).is_ok());
+
         let mut review = valid_review();
         review.text = "   ".to_string();
         let review = review.sanitize();
-        assert!(review.validate(None).is_err());
+        assert_eq!(review.text, "");
+        assert!(review.validate(None).is_ok());
     }
 
     #[test]
-    fn test_validate_text_too_long() {
+    fn test_missing_text_reads_as_empty() {
+        let review = valid_review();
+        let id = review.review_id.clone();
+        let mut value = serde_json::to_value(&review).unwrap();
+        value.as_object_mut().unwrap().remove("text");
+        let json = serde_json::to_string(&value).unwrap();
+        let parsed =
+            <PubkyAppMarketplaceReview as Validatable>::try_from(json.as_bytes(), &id).unwrap();
+        assert_eq!(parsed.text, "");
+    }
+
+    #[test]
+    fn test_validate_text_length_limit() {
         let mut review = valid_review();
+        review.text = "a".repeat(MAX_REVIEW_TEXT_LENGTH);
+        assert!(review.validate(None).is_ok());
+
         review.text = "a".repeat(MAX_REVIEW_TEXT_LENGTH + 1);
         assert!(review.validate(None).is_err());
+
+        // The limit counts characters, not bytes.
+        review.text = "é".repeat(MAX_REVIEW_TEXT_LENGTH);
+        assert!(review.validate(None).is_ok());
+    }
+
+    #[test]
+    fn test_spec_14_record_still_validates() {
+        // A record as `.14` wrote it: per-order ID, non-empty text.
+        let json = format!(
+            r#"{{
+                "schemaVersion": 1,
+                "recordType": "review",
+                "ownerPubky": "{REVIEWER}",
+                "revision": 2,
+                "createdAt": "2026-10-01T09:00:00Z",
+                "updatedAt": "2026-10-02T09:00:00Z",
+                "reviewId": "",
+                "subjectPubky": "{SELLER}",
+                "listingOwnerPubky": "{SELLER}",
+                "listingId": "0032SSN7Q4EVG",
+                "role": "buyer_reviewing_seller",
+                "ratings": {{ "overall": 4, "shipping": 5 }},
+                "text": "Arrived well packed.",
+                "eligibilityAttestation": "{}",
+                "orderRef": "{}"
+            }}"#,
+            "a".repeat(64),
+            "b".repeat(64)
+        );
+        let mut record: PubkyAppMarketplaceReview = serde_json::from_str(&json).unwrap();
+        record.review_id = record.create_id();
+        let id = record.review_id.clone();
+        let json = serde_json::to_string(&record).unwrap();
+        let parsed =
+            <PubkyAppMarketplaceReview as Validatable>::try_from(json.as_bytes(), &id).unwrap();
+        assert_eq!(parsed.text, "Arrived well packed.");
+        assert_eq!(parsed.order_ref, Some("b".repeat(64)));
     }
 
     #[test]
