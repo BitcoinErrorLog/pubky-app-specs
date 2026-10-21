@@ -26,6 +26,7 @@ _Version 0.6.0_
     - [PubkyAppMarketplaceDrop](#pubkyappmarketplacedrop)
     - [PubkyAppMarketplaceReview](#pubkyappmarketplacereview)
     - [Purchase Attestation (embedded JWS)](#purchase-attestation-embedded-jws)
+    - [PubkyAppAttestorProfile and PubkyAppAttestorAnnotation](#pubkyappattestorprofile-and-pubkyappattestorannotation)
     - [PubkyAppReviewResponse](#pubkyappreviewresponse)
     - [PubkyAppWatchlist (private)](#pubkyappwatchlist-private)
     - [PubkyAppMarketplaceOrderReceipt (private)](#pubkyappmarketplaceorderreceipt-private)
@@ -507,6 +508,54 @@ For `kind = collection`, `parent`, `embed`, and `post.attachments` must be unset
 4. Accept as **verified** only if `iss` is on your own attestor trust list. The signature proves key possession, never legitimacy.
 
 Exact amounts, timestamps finer than a day, addresses, payment identifiers, and bearer material are prohibited in claims.
+
+---
+
+### PubkyAppAttestorProfile and PubkyAppAttestorAnnotation
+
+**Description:** Records a purchase attestor publishes on its **own** homeserver, owned by the attestor pubky: the profile says who operates the key, which keys it has issued with and how it issues; one annotation per attested order records refund and return outcomes. Both carry a `proof` so cached copies verify offline. Unknown members are tolerated and covered by the proof.
+
+**URIs:** `/pub/pubky.app/marketplace/v1/attestor/profile` and `/pub/pubky.app/marketplace/v1/attestor/annotations/:order_ref`
+
+**Profile:**
+
+| **Field**                         | **Type** | **Description**                                   | **Validation Rules**                                                              |
+| --------------------------------- | -------- | ------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `operator.name`                   | String   | Operator name, e.g. `"Pubky Market"`.             | Required. 1–100 characters, no surrounding whitespace.                            |
+| `operator.url`                    | String   | Operator website.                                 | Required. https URL, at most 2048 characters.                                     |
+| `operator.policyUrl`              | String   | Issuance policy page.                             | Required. https URL, at most 2048 characters.                                     |
+| `keys`                            | Array    | Keys the attestor has issued with.                | Required. 1–16 entries, no repeated `pubky`.                                      |
+| `keys[].pubky`                    | String   | Key pubky.                                        | Required. 52-character z-base-32 pubky.                                           |
+| `keys[].validFrom`                | String   | When the key started issuing.                     | Required. ISO-8601 datetime with offset.                                          |
+| `keys[].validUntil`               | String   | When the key stopped issuing.                     | Optional. After `validFrom`.                                                      |
+| `keys[].compromisedFrom`          | String   | From when the key's attestations are untrusted.   | Optional. Not before `validFrom`.                                                 |
+| `successor`                       | String   | Attestor that takes over.                         | Optional. 52-character z-base-32 pubky.                                           |
+| `issuancePolicy.editWindowHours`  | Integer  | Hours in which items may be added to a review.    | Required. 0–8760.                                                                 |
+| `issuancePolicy.blindWindowDays`  | Integer  | Days a double-blind review stays sealed.          | Required. 0–365.                                                                  |
+| `issuancePolicy.amountBand`       | String   | When `amount_band` is issued.                     | Required. 1–64 characters, e.g. `"both-sides consent"`.                           |
+| `issuancePolicy.priceDecade`      | String   | When `price_decade` is issued.                    | Required. 1–64 characters, e.g. `"always"`.                                       |
+| `issuancePolicy.minOrderValue`    | Object   | Smallest attested order total.                    | Required, may be `null`. A positive money object.                                 |
+| `proof`                           | String   | Proof over the canonical body.                    | Required. `typ` `pubky-attestor-profile+v1`.                                      |
+
+**Annotation:**
+
+| **Field**         | **Type** | **Description**                               | **Validation Rules**                                                       |
+| ----------------- | -------- | --------------------------------------------- | -------------------------------------------------------------------------- |
+| `orderRef`        | String   | The attested order's `order_ref`.             | Required. Lowercase 64-character hex hash; must equal the path ID.         |
+| `outcomes`        | Array    | What happened to the order.                   | Required. 0–16 entries `{kind, on}`: `kind` `refunded` or `returned`, `on` a `YYYY-MM-DD` date. |
+| `revision`        | Integer  | Record revision; a higher one replaces.       | Required. Positive safe integer.                                           |
+| `proof`           | String   | Proof over the canonical body.                | Required. `typ` `pubky-attestor-annotation+v1`.                            |
+
+**Proof:** a compact JWS (RFC 7515) with a detached payload (Appendix F), signed with EdDSA/Ed25519 (RFC 8037): `base64url(header) || ".." || base64url(signature)`, unpadded. The header is exactly `{"alg":"EdDSA","typ":<typ>}`. The signature covers `base64url(header) || "." || base64url(canonical body)`, where the canonical body is the record's JSON object without `proof`, serialized per RFC 8785 (members sorted by UTF-16 code units, no whitespace; the records hold integers only).
+
+**Verification recipe (offline):**
+
+1. Parse the URI; it must be the profile path, or an annotation path whose ID equals the record's `orderRef`.
+2. Check the header `alg` and `typ` against the path, decode the URI's owner pubky as the Ed25519 key, and verify the signature over the canonical body.
+3. Validate the record.
+4. A verifier may only **narrow** its own trust from a profile: a key's effective end is the earlier of the configured `validUntil` and the profile's `compromisedFrom`. It never adds keys or follows `successor` from a profile, since whoever holds a stolen key can rewrite it.
+
+`PubkyAppAttestorProfile::from_verified_json(uri, blob)` and `PubkyAppAttestorAnnotation::from_verified_json(uri, blob)` run the recipe (`PubkyAppObject::from_uri` calls them; wasm `verifyAttestorProfile`, `verifyAttestorAnnotation`); `sign(secret_key)` and `to_canonical_json()` serve the publisher. `src/test_fixtures/attestor-records-v1.json` holds a canonical vector for each record.
 
 ---
 
